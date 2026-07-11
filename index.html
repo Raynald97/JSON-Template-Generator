@@ -1056,20 +1056,20 @@ const ElementNode = {
       </template>
 
       <template v-else-if="node.content_type===5">
-        <!-- --- TAMBAHKAN WORD-BREAK DAN WHITE-SPACE --- -->
-        <div v-if="isDesign" style="font-family: monospace; word-break: break-all; white-space: pre-wrap;">IMAGE({{ node.content }})</div>
+        <!-- --- PERBAIKAN: OVERFLOW HIDDEN AGAR BISA DIPERKECIL --- -->
+        <div v-if="isDesign" style="font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" :title="'IMAGE(' + node.content + ')'">IMAGE({{ node.content }})</div>
         <img v-else :src="previewValue" class="el-image-preview" @error="$event.target.style.opacity=0.15">
       </template>
 
       <template v-else-if="node.content_type===6">
-        <!-- --- TAMBAHKAN WORD-BREAK DAN WHITE-SPACE --- -->
-        <div v-if="isDesign" style="font-family: monospace; word-break: break-all; white-space: pre-wrap;">BARCODE({{ node.content }})</div>
+        <!-- --- PERBAIKAN: OVERFLOW HIDDEN AGAR BISA DIPERKECIL --- -->
+        <div v-if="isDesign" style="font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" :title="'BARCODE(' + node.content + ')'">BARCODE({{ node.content }})</div>
         <div v-else class="barcode-render"><svg ref="bcCanvas"></svg></div>
       </template>
 
       <template v-else-if="node.content_type===9 || node.content_type===10">
-        <!-- --- TAMBAHKAN WORD-BREAK DAN WHITE-SPACE --- -->
-        <div v-if="isDesign" style="font-family: monospace; word-break: break-all; white-space: pre-wrap;">QR({{ node.content }})</div>
+        <!-- --- PERBAIKAN: OVERFLOW HIDDEN AGAR BISA DIPERKECIL --- -->
+        <div v-if="isDesign" style="font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" :title="'QR(' + node.content + ')'">QR({{ node.content }})</div>
         <div v-else class="qr-render" ref="qrDiv"></div>
       </template>
 
