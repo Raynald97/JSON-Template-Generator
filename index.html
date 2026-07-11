@@ -1,0 +1,1958 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Visual Printout Template Generator</title>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/vue/3.4.21/vue.global.prod.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.5/JsBarcode.all.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+<style>
+:root{
+  --bg-app:#14161c;
+  --bg-panel:#1b1e26;
+  --bg-panel-alt:#20232c;
+  --border-panel:#2a2e38;
+  --text-hi:#e7e9f0;
+  --text-lo:#8b90a3;
+  --text-faint:#5b6070;
+  --accent:#5b8def;
+  --accent-dim:#3a5fb0;
+  --accent-soft:rgba(91,141,239,.14);
+  --good:#3ecf8e;
+  --warn:#e0a238;
+  --danger:#e0625c;
+  --canvas-bg:#e7e9ee;
+  --paper:#ffffff;
+  --mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --radius: 6px;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;height:100%;font-family:var(--sans);background:var(--bg-app);color:var(--text-hi);}
+#app{height:100vh;display:flex;flex-direction:column;overflow:hidden;}
+input,select,textarea,button{font-family:inherit;font-size:12.5px;color:var(--text-hi);}
+button{cursor:pointer;}
+::-webkit-scrollbar{width:10px;height:10px;}
+::-webkit-scrollbar-thumb{background:#333744;border-radius:8px;}
+::-webkit-scrollbar-track{background:transparent;}
+
+.eyebrow{
+  font-size:10.5px; letter-spacing:.09em; text-transform:uppercase;
+  color:var(--text-faint); font-weight:700; margin:0 0 8px 0;
+}
+
+/* ---------- TOP BAR ---------- */
+.topbar{
+  height:56px; min-height:56px; background:var(--bg-panel);
+  border-bottom:1px solid var(--border-panel);
+  display:flex; align-items:center; gap:14px; padding:0 14px; overflow-x:auto;
+}
+.brand{display:flex;align-items:center;gap:8px;font-weight:700;font-size:13.5px;white-space:nowrap;}
+.brand .dot{width:9px;height:9px;border-radius:2px;background:var(--accent);transform:rotate(45deg);}
+.tb-field{display:flex;flex-direction:column;gap:2px;}
+.tb-field label{font-size:9.5px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;}
+.tb-field input{
+  background:var(--bg-panel-alt); border:1px solid var(--border-panel); border-radius:4px;
+  padding:5px 7px; width:130px; color:var(--text-hi);
+}
+.tb-field input.narrow{width:70px;}
+.tb-sep{width:1px;align-self:stretch;background:var(--border-panel);margin:8px 0;}
+.tb-actions{display:flex;gap:6px;align-items:center;}
+.btn{
+  background:var(--bg-panel-alt); border:1px solid var(--border-panel); color:var(--text-hi);
+  border-radius:4px; padding:6px 10px; font-size:12px; display:flex; align-items:center; gap:6px;
+  white-space:nowrap; transition:.12s;
+}
+.btn:hover{border-color:var(--accent); color:var(--accent);}
+.btn:disabled{opacity:.35; cursor:not-allowed;}
+.btn:disabled:hover{border-color:var(--border-panel); color:var(--text-hi);}
+.btn.primary{background:var(--accent); border-color:var(--accent); color:#0b0e14; font-weight:700;}
+.btn.primary:hover{background:#78a3f5; color:#0b0e14;}
+.btn.danger{color:var(--danger);}
+.btn.danger:hover{border-color:var(--danger); background:rgba(224,98,92,0.1);}
+.btn.icon{padding:6px 8px;}
+.btn.full-width{width:100%; justify-content:center; margin-top:8px;}
+.mode-toggle{
+  display:flex; background:var(--bg-panel-alt); border:1px solid var(--border-panel); border-radius:20px; padding:2px;
+}
+.mode-toggle button{
+  border:none; background:transparent; padding:5px 12px; border-radius:18px; font-size:11.5px; font-weight:600;
+  color:var(--text-lo);
+}
+.mode-toggle button.active{background:var(--accent); color:#0b0e14;}
+.zoom-select{
+  background:var(--bg-panel-alt); border:1px solid var(--border-panel); border-radius:4px; padding:6px 7px; color:var(--text-hi);
+}
+.spacer{flex:1;}
+.autosave-flag{font-size:10.5px; color:var(--text-faint); white-space:nowrap; display:flex; align-items:center; gap:5px;}
+.autosave-flag .led{width:6px;height:6px;border-radius:50%;background:var(--good);}
+
+/* ---------- MAIN SHELL ---------- */
+.shell{flex:1; display:flex; min-height:0;}
+
+/* ---------- LEFT PALETTE ---------- */
+.palette{
+  width:196px; min-width:196px; background:var(--bg-panel); border-right:1px solid var(--border-panel);
+  padding:14px 12px; overflow-y:auto;
+}
+.pal-item{
+  display:flex; align-items:center; gap:9px; padding:9px 9px; margin-bottom:6px; border-radius:var(--radius);
+  background:var(--bg-panel-alt); border:1px solid var(--border-panel); cursor:grab; user-select:none;
+  transition:.12s;
+}
+.pal-item:hover{border-color:var(--accent); transform:translateX(2px);}
+.pal-item:active{cursor:grabbing;}
+.pal-item .ic{
+  width:26px;height:26px;border-radius:5px;background:var(--accent-soft);color:var(--accent);
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;
+}
+.pal-item .lbl{font-size:12px;font-weight:600;}
+.pal-item .sub{font-size:9.5px;color:var(--text-faint);}
+
+/* ---------- CENTER CANVAS ---------- */
+.workbench{
+  flex:1; background:
+    linear-gradient(var(--canvas-bg),var(--canvas-bg)),
+    repeating-linear-gradient(0deg, rgba(0,0,0,.035) 0 1px, transparent 1px 24px),
+    repeating-linear-gradient(90deg, rgba(0,0,0,.035) 0 1px, transparent 1px 24px);
+  overflow:auto; padding:40px; display:flex; justify-content:center;
+}
+.zoom-wrap{transform-origin: top center;}
+.page{
+  background:var(--paper); box-shadow:0 4px 24px rgba(0,0,0,.25), 0 0 0 1px rgba(0,0,0,.06);
+  min-height:200px; position:relative; color:#1a1a1a;
+}
+.page-empty-hint{
+  position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+  color:#b7bac2; font-size:13px; pointer-events:none; text-align:center; padding:20px;
+}
+
+/* element node visuals */
+.el-node{position:relative; min-width:4px; min-height:4px;}
+
+.design-mode .el-node {
+  outline: 1px dashed #777; 
+  outline-offset: -1px;
+}
+
+.el-node.el-selected {
+  outline: 2px solid red !important; 
+  outline-offset: -2px;
+  z-index: 10;
+}
+
+/* --- TAMBAHAN KODE RESIZE --- */
+.resize-handle {
+  position: absolute;
+  z-index: 50;
+  background: var(--accent);
+  border: 1px solid #fff;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.el-node.el-selected:hover .resize-handle {
+  opacity: 1;
+}
+.resize-handle.right {
+  top: 0; right: -4px; bottom: 0; width: 8px; cursor: ew-resize;
+}
+.resize-handle.bottom {
+  left: 0; bottom: -4px; right: 0; height: 8px; cursor: ns-resize;
+}
+.resize-handle.corner {
+  right: -5px; bottom: -5px; width: 10px; height: 10px; cursor: nwse-resize; border-radius: 50%;
+}
+/* ---------------------------- */
+
+.el-empty-drop{
+  font-size:10.5px; color:#666; text-align:center; padding:10px; border:1px dashed rgba(0,0,0,0.3); margin:2px; border-radius:4px;
+  min-height:22px; display:flex; align-items:center; justify-content:center;
+}
+.el-image-preview{max-width:100%; display:block;}
+
+.el-table{width:100%; border-collapse:collapse; font-size:12px; table-layout:fixed;}
+.el-table td, .el-table th{word-break:break-word; overflow:hidden;}
+.barcode-render svg, .qr-render{display:inline-block;}
+
+/* ---------- UX KANVAS (MENU MELAYANG) ---------- */
+.canvas-toolbar {
+  position: absolute;
+  top: -32px;
+  right: -2px;
+  background: lightblue;
+  color: #0b0e14;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  z-index: 50;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  pointer-events: auto;
+  white-space: nowrap;
+}
+.canvas-toolbar .ct-name {
+  font-weight: 800;
+  margin-right: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.canvas-toolbar button {
+  background: rgba(255,255,255,0.3);
+  border: none;
+  color: #0b0e14;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: 0.1s;
+}
+.canvas-toolbar button:hover {
+  background: rgba(255,255,255,0.7);
+  transform: translateY(-2px);
+}
+
+/* ---------- RIGHT PROPERTIES ---------- */
+.props{
+  width:320px; min-width:320px; background:var(--bg-panel); border-left:1px solid var(--border-panel);
+  overflow-y:auto; padding:14px;
+}
+.ptabs{display:flex; gap:6px; margin-bottom:14px;}
+.ptabs button{
+  flex:1; background:var(--bg-panel-alt); border:1px solid var(--border-panel); color:var(--text-lo);
+  padding:7px 4px; border-radius:5px; font-size:11px; font-weight:600;
+}
+.ptabs button.active{background:var(--accent-soft); border-color:var(--accent); color:var(--accent);}
+.psection{border:1px solid var(--border-panel); border-radius:var(--radius); padding:12px; margin-bottom:12px; background:var(--bg-panel-alt);}
+.psection .eyebrow{margin-bottom:10px; display:flex; align-items:center; justify-content:space-between;}
+.field{margin-bottom:9px;}
+.field label{display:block; font-size:10.5px; color:var(--text-lo); margin-bottom:3px;}
+.field input[type=text], .field input[type=number], .field select, .field textarea{
+  width:100%; background:#141620; border:1px solid var(--border-panel); border-radius:4px; padding:6px 7px; color:var(--text-hi);
+}
+.field textarea{font-family:var(--mono); resize:vertical; min-height:56px;}
+.field .hint{font-size:9.5px; color:var(--text-faint); margin-top:3px;}
+.row2{display:grid; grid-template-columns:1fr 1fr; gap:8px;}
+.kv-row{display:grid; grid-template-columns:auto 1fr auto; gap:6px; align-items:center; margin-bottom:5px;}
+.kv-row input{background:#141620; border:1px solid var(--border-panel); border-radius:4px; padding:5px 6px; color:var(--text-hi); font-size:11.5px;}
+.kv-row .k{font-family:var(--mono); font-size:10.5px; color:var(--text-lo);}
+.kv-mini-btn{
+  background:transparent; border:1px solid var(--border-panel); color:var(--text-faint); border-radius:4px;
+  width:22px; height:22px; display:flex; align-items:center; justify-content:center; font-size:13px;
+}
+.kv-mini-btn:hover{border-color:var(--danger); color:var(--danger);}
+.badge-type{
+  display:inline-block; background:var(--accent-soft); color:var(--accent); font-size:10px; font-weight:700;
+  padding:3px 8px; border-radius:12px; text-transform:uppercase; letter-spacing:.04em;
+}
+.selrow{display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;}
+.mini-toolbar{display:flex; gap:5px;}
+.empty-state{
+  color:var(--text-faint); font-size:12px; text-align:center; padding:40px 10px; line-height:1.6;
+}
+.col-card{border:1px solid var(--border-panel); border-radius:5px; padding:10px; margin-bottom:10px; background:#141620; border-left:3px solid var(--accent);}
+.col-card-head{display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;}
+.col-card-head .name{font-size:11.5px; font-weight:700; color:var(--text-hi); font-family:var(--mono);}
+.check-row{display:flex; align-items:center; gap:6px; font-size:11px; color:var(--text-lo); margin-top:6px;}
+
+/* restore banner */
+.restore-banner{
+  position:fixed; top:64px; left:50%; transform:translateX(-50%); z-index:50;
+  background:#2a2410; border:1px solid var(--warn); color:#f0d99a; padding:10px 14px; border-radius:8px;
+  display:flex; align-items:center; gap:12px; font-size:12.5px; box-shadow:0 6px 20px rgba(0,0,0,.4);
+}
+.restore-banner button{padding:5px 10px; border-radius:4px; font-size:11.5px; font-weight:700;}
+
+svg.i{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div class="topbar">
+    <div class="brand"><span class="dot"></span> Printout Template Builder</div>
+    <div class="tb-sep"></div>
+
+    <div class="tb-field"><label>Template ID</label>
+      <input type="text" v-model="templateId" @change="pushHistory(); saveLocal();" placeholder="template_id">
+    </div>
+    <div class="tb-field"><label>Company ID</label>
+      <input type="text" v-model="companyId" @change="pushHistory(); saveLocal();" placeholder="company_id" class="narrow">
+    </div>
+    <div class="tb-field"><label>Description</label>
+      <input type="text" v-model="description" @change="pushHistory(); saveLocal();" placeholder="description">
+    </div>
+    <div class="tb-field"><label>Document Type</label>
+      <input type="number" v-model.number="documentType" @change="pushHistory(); saveLocal();" class="narrow">
+    </div>
+
+    <div class="tb-sep"></div>
+
+    <div class="tb-actions">
+      <button class="btn" @click="triggerImport" title="Import JSON">
+        <svg class="i" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M4 21h16"/></svg> Import
+      </button>
+      <input ref="fileInput" type="file" accept=".json,application/json" style="display:none" @change="onImportFile">
+      <button class="btn" @click="downloadExport" title="Export JSON">
+        <svg class="i" viewBox="0 0 24 24"><path d="M12 21V9M7 14l5-5 5 5M4 3h16"/></svg> Export
+      </button>
+      <button class="btn danger" @click="clearCanvas" title="Clear Canvas">
+        <svg class="i" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14"/></svg> Clear
+      </button>
+    </div>
+
+    <div class="tb-sep"></div>
+
+    <div class="tb-actions">
+      <button class="btn icon" :disabled="historyIndex<=0" @click="undo" title="Undo">
+        <svg class="i" viewBox="0 0 24 24"><path d="M3 10h11a5 5 0 0 1 0 10H9M3 10l5-5M3 10l5 5"/></svg>
+      </button>
+      <button class="btn icon" :disabled="historyIndex>=history.length-1" @click="redo" title="Redo">
+        <svg class="i" viewBox="0 0 24 24"><path d="M21 10H10a5 5 0 0 0 0 10h5M21 10l-5-5M21 10l-5 5"/></svg>
+      </button>
+    </div>
+
+    <div class="tb-sep"></div>
+
+    <select class="zoom-select" v-model.number="zoom">
+      <option :value="50">50%</option>
+      <option :value="75">75%</option>
+      <option :value="100">100%</option>
+      <option :value="125">125%</option>
+      <option :value="150">150%</option>
+    </select>
+
+    <div class="mode-toggle">
+      <button :class="{active: mode==='design'}" @click="mode='design'">Design</button>
+      <button :class="{active: mode==='preview'}" @click="mode='preview'">Preview</button>
+    </div>
+
+    <div class="spacer"></div>
+    <div class="autosave-flag"><span class="led"></span> Autosaved</div>
+  </div>
+
+  <div class="restore-banner" v-if="showRestorePrompt">
+    A previously autosaved template was found in this browser.
+    <button class="btn primary" @click="restoreAutosave">Restore</button>
+    <button class="btn" @click="discardAutosave">Discard</button>
+  </div>
+
+  <div class="shell">
+
+    <div class="palette">
+      <div class="eyebrow">Elements</div>
+      <div class="pal-item" v-for="tool in PALETTE" :key="tool.type" draggable="true"
+           @dragstart="onPaletteDragStart($event, tool.type)">
+        <div class="ic" v-html="tool.icon"></div>
+        <div>
+          <div class="lbl">{{ tool.label }}</div>
+          <div class="sub">{{ tool.hint }}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="workbench" @dragover.prevent @drop.prevent="handleDrop($event.dataTransfer.getData('text/plain'), null)">
+      <div class="zoom-wrap" :style="{transform:'scale('+(zoom/100)+')'}">
+        <div class="page" :class="{'design-mode': mode==='design'}" :style="pageStyle" @click="deselect">
+          <element-node v-for="cid in rootChildren" :key="cid" :id="cid"></element-node>
+          <div class="page-empty-hint" v-if="rootChildren.length===0">
+            Tarik elemen dari palet sebelah kiri ke kertas A4 ini untuk memulai.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="props">
+
+      <template v-if="selectedId && elements[selectedId]">
+        <div class="selrow">
+          <span class="badge-type">{{ typeLabel(elements[selectedId].content_type) }}</span>
+        </div>
+
+        <div class="psection" v-if="elements[selectedId].content_type===4">
+          <div class="eyebrow">Table Rows (Data Source)</div>
+          <div class="field">
+            <input type="text" v-model="elements[selectedId].table_data.data_source" @change="pushHistory(); saveLocal();" placeholder="e.g. document_data.cart">
+            <div class="hint">Table rows are generated automatically based on this array. Do not add rows manually.</div>
+          </div>
+        </div>
+
+        <div class="psection" v-else>
+          <div class="eyebrow">Content / Expression</div>
+          <div class="field" v-if="elements[selectedId].content_type===3">
+            <label>Static text</label>
+            <textarea v-model="elements[selectedId].content" @change="pushHistory(); saveLocal();"></textarea>
+          </div>
+          <div class="field" v-else-if="elements[selectedId].content_type===0">
+            <div class="hint">Wadah / Kotak digunakan untuk mengelompokkan baris atau kolom. Tarik elemen lain ke dalamnya.</div>
+          </div>
+          <div class="field" v-else>
+            <label>{{ elements[selectedId].content_type===5 ? 'Image URL expression' : 'Binding expression' }}</label>
+            <input type="text" v-model="elements[selectedId].content" @change="pushHistory(); saveLocal();" placeholder="document_data.field">
+            <div class="hint">Evaluated against the payload in Preview mode.</div>
+          </div>
+
+          <!-- --- TAMBAHAN INPUT FORMAT TANGGAL --- -->
+          <div class="field" v-if="elements[selectedId].content_type===2 || elements[selectedId].content_type===7">
+            <label>Format Tanggal (Opsional)</label>
+            <input type="text" list="date-formats" :value="getSetting(selectedId, 'format')" @change="setSetting(selectedId, 'format', $event.target.value)" placeholder="Kosongkan jika bukan tanggal">
+            <datalist id="date-formats">
+              <option value="DD/MM/YYYY"></option>
+              <option value="DD - MM - YYYY"></option>
+              <option value="DD MMM YYYY"></option>
+              <option value="MM/YYYY"></option>
+            </datalist>
+            <div class="hint">Pilih atau ketik format. Berlaku jika data di atas adalah tanggal.</div>
+          </div>
+          <!-- ------------------------------------- -->
+        </div>
+
+        <div class="psection" v-if="elements[selectedId].content_type===4">
+          <div class="eyebrow">Table Columns Manager</div>
+          
+          <div class="col-card" v-for="(col,ci) in elements[selectedId].table_data.columns" :key="col.name+ci">
+            <div class="col-card-head">
+              <span class="name">Column {{ ci + 1 }}</span>
+              <button class="kv-mini-btn" @click="removeColumn(selectedId,ci)">&times;</button>
+            </div>
+            <div class="field"><label>Header title</label>
+              <input type="text" v-model="col.title" @change="pushHistory(); saveLocal();">
+            </div>
+            <div class="field"><label>Content expression</label>
+              <input type="text" v-model="col.content" @change="pushHistory(); saveLocal();" placeholder="document_data.sku">
+            </div>
+            <!-- --- TAMBAHAN FORMAT TANGGAL DI TABEL --- -->
+            <div class="field" v-if="col.content_type===2">
+              <label>Format Tanggal (Opsional)</label>
+              <input type="text" list="date-formats" v-model="col.format" @change="pushHistory(); saveLocal();" placeholder="Kosongkan jika bukan tanggal">
+            </div>
+            <!-- ---------------------------------------- -->
+            <div class="row2">
+              <div class="field"><label>Width</label>
+                <input type="text" :value="colWidth(col)" @change="setColWidth(col,$event.target.value); pushHistory(); saveLocal();" placeholder="auto / 20%">
+              </div>
+              <div class="field"><label>Type</label>
+                <select v-model.number="col.content_type" @change="pushHistory(); saveLocal();">
+                  <option :value="2">Variable</option>
+                  <option :value="3">Static Label</option>
+                </select>
+              </div>
+            </div>
+            <label class="check-row">
+              <input type="checkbox" :true-value="1" :false-value="0" v-model="col.show_header" @change="pushHistory(); saveLocal();">
+              Show header
+            </label>
+            
+            <!-- --- TAMBAHAN PANEL PENGATURAN GAYA KOLOM --- -->
+            <details style="margin-top: 12px; font-size: 11px; background: #1a1c23; padding: 6px; border-radius: 4px; border: 1px solid var(--border-panel);">
+              <summary style="color: var(--accent); font-weight: 700; cursor: pointer; outline: none;">🎨 Pengaturan Visual Kolom</summary>
+              
+              <div style="display: flex; gap: 8px; margin-top: 10px;">
+                
+                <!-- HEADER STYLING -->
+                <div style="flex: 1; border-right: 1px solid var(--border-panel); padding-right: 8px;">
+                  <div style="font-weight: 700; margin-bottom: 8px; color: var(--text-lo); text-align: center;">HEADER (Judul)</div>
+                  
+                  <!-- --- TAMBAHAN POSISI TEKS --- -->
+                  <div class="field"><label>Posisi Teks</label>
+                    <select :value="getColCss(col, 'header', 'text-align') || 'center'" @change="setColCss(col, 'header', 'text-align', $event.target.value)" style="width:100%;">
+                      <option value="left">Kiri</option>
+                      <option value="center">Tengah</option>
+                      <option value="right">Kanan</option>
+                    </select>
+                  </div>
+                  <!-- -------------------------- -->
+                  
+                  <div class="field"><label>Ukuran Font</label>
+                    <input type="number" :value="parseInt(getColCss(col, 'header', 'font-size')) || 14" @input="setColCss(col, 'header', 'font-size', $event.target.value + 'px')">
+                  </div>
+                  
+                  <div class="field"><label>Gaya (B/I/U)</label>
+                    <div style="display: flex; gap: 4px;">
+                      <button class="btn icon" :style="getColCss(col, 'header', 'font-weight') === 'bold' ? 'background:var(--accent); color:#000;' : ''" @click.prevent="setColCss(col, 'header', 'font-weight', getColCss(col, 'header', 'font-weight') === 'bold' ? 'normal' : 'bold')">B</button>
+                      <button class="btn icon" style="font-style: italic;" :style="getColCss(col, 'header', 'font-style') === 'italic' ? 'background:var(--accent); color:#000;' : ''" @click.prevent="setColCss(col, 'header', 'font-style', getColCss(col, 'header', 'font-style') === 'italic' ? 'normal' : 'italic')">I</button>
+                      <button class="btn icon" style="text-decoration: underline;" :style="getColCss(col, 'header', 'text-decoration') === 'underline' ? 'background:var(--accent); color:#000;' : ''" @click.prevent="setColCss(col, 'header', 'text-decoration', getColCss(col, 'header', 'text-decoration') === 'underline' ? 'none' : 'underline')">U</button>
+                    </div>
+                  </div>
+                  
+                  <div class="field"><label>Warna Teks</label>
+                    <input type="color" :value="getColCss(col, 'header', 'color') || '#000000'" @input="setColCss(col, 'header', 'color', $event.target.value)" style="width:100%; height:26px; padding:0; cursor:pointer;">
+                  </div>
+                  
+                  <div class="field"><label>Background</label>
+                    <input type="color" :value="getColCss(col, 'header', 'background-color') || '#ffffff'" @input="setColCss(col, 'header', 'background-color', $event.target.value)" style="width:100%; height:26px; padding:0; cursor:pointer;">
+                  </div>
+                </div>
+
+                <!-- CONTENT STYLING -->
+                <div style="flex: 1; padding-left: 2px;">
+                  <div style="font-weight: 700; margin-bottom: 8px; color: var(--text-lo); text-align: center;">ISI (Content)</div>
+                  
+                  <!-- --- TAMBAHAN POSISI TEKS --- -->
+                  <div class="field"><label>Posisi Teks</label>
+                    <select :value="getColCss(col, 'content', 'text-align') || 'left'" @change="setColCss(col, 'content', 'text-align', $event.target.value)" style="width:100%;">
+                      <option value="left">Kiri</option>
+                      <option value="center">Tengah</option>
+                      <option value="right">Kanan</option>
+                    </select>
+                  </div>
+                  <!-- -------------------------- -->
+                  
+                  <div class="field"><label>Ukuran Font</label>
+                    <input type="number" :value="parseInt(getColCss(col, 'content', 'font-size')) || 14" @input="setColCss(col, 'content', 'font-size', $event.target.value + 'px')">
+                  </div>
+                  
+                  <div class="field"><label>Gaya (B/I/U)</label>
+                    <div style="display: flex; gap: 4px;">
+                      <button class="btn icon" :style="getColCss(col, 'content', 'font-weight') === 'bold' ? 'background:var(--accent); color:#000;' : ''" @click.prevent="setColCss(col, 'content', 'font-weight', getColCss(col, 'content', 'font-weight') === 'bold' ? 'normal' : 'bold')">B</button>
+                      <button class="btn icon" style="font-style: italic;" :style="getColCss(col, 'content', 'font-style') === 'italic' ? 'background:var(--accent); color:#000;' : ''" @click.prevent="setColCss(col, 'content', 'font-style', getColCss(col, 'content', 'font-style') === 'italic' ? 'normal' : 'italic')">I</button>
+                      <button class="btn icon" style="text-decoration: underline;" :style="getColCss(col, 'content', 'text-decoration') === 'underline' ? 'background:var(--accent); color:#000;' : ''" @click.prevent="setColCss(col, 'content', 'text-decoration', getColCss(col, 'content', 'text-decoration') === 'underline' ? 'none' : 'underline')">U</button>
+                    </div>
+                  </div>
+                  
+                  <div class="field"><label>Warna Teks</label>
+                    <input type="color" :value="getColCss(col, 'content', 'color') || '#000000'" @input="setColCss(col, 'content', 'color', $event.target.value)" style="width:100%; height:26px; padding:0; cursor:pointer;">
+                  </div>
+                  
+                  <div class="field"><label>Background</label>
+                    <input type="color" :value="getColCss(col, 'content', 'background-color') || '#ffffff'" @input="setColCss(col, 'content', 'background-color', $event.target.value)" style="width:100%; height:26px; padding:0; cursor:pointer;">
+                  </div>
+                </div>
+
+              </div>
+            </details>
+            <!-- ----------------------------------------------- -->
+
+          </div>
+
+          <button class="btn full-width" @click="addColumn(selectedId)">
+            + Add New Column
+          </button>
+        </div>
+
+        <div class="psection">
+          <div class="eyebrow">Pengaturan Susunan (Layout)</div>
+          <div class="row2">
+            <div class="field"><label>Susun Isinya Ke</label>
+              <select v-model="elements[selectedId].layout_setting.fxLayout" @change="pushHistory(); saveLocal();">
+                <option value="none">Tidak Diatur</option>
+                <option value="row">Samping (Kanan)</option>
+                <option value="column">Bawah (Vertikal)</option>
+              </select>
+            </div>
+            <div class="field"><label>Jarak Antar Item</label>
+              <input type="text" v-model="elements[selectedId].layout_setting.fxLayoutGap" @change="pushHistory(); saveLocal();" placeholder="Contoh: 8px">
+            </div>
+            <div class="field"><label>Rata Kiri/Kanan/Tengah</label>
+              <select v-model="elements[selectedId].layout_setting.fxLayoutAlign_horizontal" @change="pushHistory(); saveLocal();">
+                <option value="none">Standar</option><option value="start">Kiri</option><option value="center">Tengah</option>
+                <option value="end">Kanan</option><option value="space-between">Beri Jarak Penuh</option><option value="space-around">Rata Sekeliling</option>
+              </select>
+            </div>
+            <div class="field"><label>Rata Atas/Bawah</label>
+              <select v-model="elements[selectedId].layout_setting.fxLayoutAlign_vertical" @change="pushHistory(); saveLocal();">
+                <option value="none">Standar</option><option value="start">Atas</option><option value="center">Tengah</option>
+                <option value="end">Bawah</option>
+              </select>
+            </div>
+          </div>
+          <div class="field"><label>Lebar Elemen (Isi dengan %)</label>
+            <input type="text" v-model="elements[selectedId].layout_setting.fxFlex" @change="pushHistory(); saveLocal();" placeholder="Contoh: 50% atau 100%">
+          </div>
+        </div>
+
+        <!-- --- TAMBAHAN MENU PAGE BREAK (CETAK) --- -->
+        <div class="psection">
+          <div class="eyebrow">Pengaturan Cetak (Page Break)</div>
+          <div class="row2">
+            <div class="field">
+              <label>Potong Sebelum</label>
+              <select :value="getPageBreak(selectedId, 'page-break-before')" @change="setPageBreak(selectedId, 'page-break-before', $event.target.value)">
+                <option value="auto">Otomatis</option>
+                <option value="always">Mulai di Halaman Baru</option>
+                <option value="avoid">Hindari Pisah</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Potong Sesudah</label>
+              <select :value="getPageBreak(selectedId, 'page-break-after')" @change="setPageBreak(selectedId, 'page-break-after', $event.target.value)">
+                <option value="auto">Otomatis</option>
+                <option value="always">Paksa Halaman Baru</option>
+                <option value="avoid">Hindari Pisah</option>
+              </select>
+            </div>
+          </div>
+          <div class="field">
+            <label>Potong Di Dalam (Isi Kotak)</label>
+            <select :value="getPageBreak(selectedId, 'page-break-inside')" @change="setPageBreak(selectedId, 'page-break-inside', $event.target.value)">
+              <option value="auto">Otomatis</option>
+              <option value="avoid">Jangan Terpotong (Pindah Bawah)</option>
+            </select>
+            <div class="hint">Pilih <b>"Jangan Terpotong"</b> agar kotak/tabel ini turun penuh ke halaman berikutnya jika tidak muat, alih-alih terpotong setengah.</div>
+          </div>
+        </div>
+        <!-- ---------------------------------------- -->
+
+        <div class="psection">
+          <div class="eyebrow">Pengaturan Visual</div>
+          
+          <div class="row2">
+            <!-- --- MODIFIKASI LEBAR (ANGKA + SATUAN) --- -->
+            <div class="field">
+              <label>Lebar (Width)</label>
+              <div style="display:flex; gap:4px; align-items:center;">
+                <input type="number" :value="parseFloat(getCss(selectedId, 'width')) || ''" @input="setCss(selectedId, 'width', $event.target.value ? $event.target.value + (String(getCss(selectedId, 'width')).includes('px') ? 'px' : '%') : '')" placeholder="Auto">
+                <select :value="String(getCss(selectedId, 'width')).includes('px') ? 'px' : '%'" @change="setCss(selectedId, 'width', (parseFloat(getCss(selectedId, 'width')) || 0) + $event.target.value)" style="width:52px; padding:6px 2px;">
+                  <option value="%">%</option>
+                  <option value="px">px</option>
+                </select>
+              </div>
+            </div>
+            
+            <!-- --- MODIFIKASI TINGGI (ANGKA + SATUAN) --- -->
+            <div class="field">
+              <label>Tinggi (Min-Height)</label>
+              <div style="display:flex; gap:4px; align-items:center;">
+                <input type="number" :value="parseFloat(getCss(selectedId, 'min-height')) || ''" @input="setCss(selectedId, 'min-height', $event.target.value ? $event.target.value + (String(getCss(selectedId, 'min-height')).includes('%') ? '%' : 'px') : '')" placeholder="Auto">
+                <select :value="String(getCss(selectedId, 'min-height')).includes('%') ? '%' : 'px'" @change="setCss(selectedId, 'min-height', (parseFloat(getCss(selectedId, 'min-height')) || 0) + $event.target.value)" style="width:52px; padding:6px 2px;">
+                  <option value="px">px</option>
+                  <option value="%">%</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- --- TAMBAHAN PENGATURAN PADDING & MARGIN --- -->
+          <div class="row2">
+            <div class="field">
+              <label>Padding (Jarak Dalam)</label>
+              <div style="display:flex; gap:6px; align-items:center;">
+                <input type="number" :value="parseInt(getCss(selectedId, 'padding')) || 0" @input="setCss(selectedId, 'padding', $event.target.value + 'px')">
+                <span style="font-size:11px; color:var(--text-faint);">px</span>
+              </div>
+              <div class="hint">Jarak teks ke garis tepi.</div>
+            </div>
+            <div class="field">
+              <label>Margin (Jarak Luar)</label>
+              <div style="display:flex; gap:6px; align-items:center;">
+                <input type="number" :value="parseInt(getCss(selectedId, 'margin')) || 0" @input="setCss(selectedId, 'margin', $event.target.value + 'px')">
+                <span style="font-size:11px; color:var(--text-faint);">px</span>
+              </div>
+              <div class="hint">Jarak antar elemen.</div>
+            </div>
+          </div>
+          <!-- -------------------------------------------- -->
+
+          <div class="row2">
+            <div class="field">
+              <label>Ukuran Font</label>
+              <div style="display:flex; gap:6px; align-items:center;">
+                <input type="number" :value="parseInt(getCss(selectedId, 'font-size')) || 14" @input="setCss(selectedId, 'font-size', $event.target.value + 'px')">
+                <span style="font-size:11px; color:var(--text-faint);">px</span>
+              </div>
+            </div>
+            <div class="field">
+              <label>Tebal Huruf</label>
+              <select :value="getCss(selectedId, 'font-weight') || 'normal'" @change="setCss(selectedId, 'font-weight', $event.target.value)">
+                <option value="normal">Normal</option>
+                <option value="bold">Tebal (Bold)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- --- TAMBAHAN JENIS FONT DAN GAYA MIRING (ITALIC) --- -->
+          <div class="row2">
+            <div class="field">
+              <label>Jenis Font</label>
+              <select :value="getCss(selectedId, 'font-family') || ''" @change="setCss(selectedId, 'font-family', $event.target.value)">
+                <option value="">Bawaan (Default)</option>
+                <option value="Arial, sans-serif">Arial</option>
+                <option value="'Courier New', Courier, monospace">Courier New</option>
+                <option value="'Times New Roman', Times, serif">Times New Roman</option>
+                <option value="'Trebuchet MS', sans-serif">Trebuchet MS</option>
+                <option value="Verdana, sans-serif">Verdana</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Gaya Huruf</label>
+              <select :value="getCss(selectedId, 'font-style') || 'normal'" @change="setCss(selectedId, 'font-style', $event.target.value)">
+                <option value="normal">Normal</option>
+                <option value="italic">Miring (Italic)</option>
+              </select>
+            </div>
+          </div>
+          <!-- -------------------------------------------------- -->
+
+          <!-- --- TAMBAHAN PENGATURAN WARNA TEKS --- -->
+          <div class="row2">
+            <div class="field">
+              <label>Posisi Teks</label>
+              <select :value="getCss(selectedId, 'text-align') || 'left'" @change="setCss(selectedId, 'text-align', $event.target.value)">
+                <option value="left">Rata Kiri</option>
+                <option value="center">Rata Tengah</option>
+                <option value="right">Rata Kanan</option>
+              </select>
+            </div>
+            
+            <div class="field">
+              <label>Warna Teks</label>
+              <div style="display:flex; gap:6px;">
+                <!-- Kotak Warna (Color Picker) -->
+                <input type="color" :value="getCss(selectedId, 'color') || '#000000'" @input="setCss(selectedId, 'color', $event.target.value)" style="height:27px; padding:0; width:35px; cursor:pointer;">
+                <!-- Input Hexadesimal (Bisa diketik manual) -->
+                <input type="text" :value="getCss(selectedId, 'color') || '#000000'" @change="setCss(selectedId, 'color', $event.target.value)" style="flex:1;">
+              </div>
+            </div>
+          </div>
+          <!-- -------------------------------------- -->
+
+          <!-- --- TAMBAHAN PENGATURAN WARNA LATAR (BACKGROUND) --- -->
+          <div class="field">
+            <label>Warna Latar (Background)</label>
+            <div style="display:flex; gap:6px;">
+              <!-- Kotak Warna (Color Picker) -->
+              <input type="color" :value="getCss(selectedId, 'background-color') || '#ffffff'" @input="setCss(selectedId, 'background-color', $event.target.value)" style="height:27px; padding:0; width:35px; cursor:pointer;">
+              <!-- Input Hexadesimal (Bisa diketik manual / transparan) -->
+              <input type="text" :value="getCss(selectedId, 'background-color') || ''" @change="setCss(selectedId, 'background-color', $event.target.value)" style="flex:1;" placeholder="Cth: #f4f4f4 atau transparent">
+            </div>
+            <div class="hint">Kosongkan isi teksnya atau ketik "transparent" untuk membuatnya tembus pandang.</div>
+          </div>
+          <!-- ---------------------------------------------------- -->
+
+          <div class="field">
+            <label>Garis Tepi (Border)</label>
+            <div style="display:flex; gap:6px; align-items:center;">
+              <input type="number" style="width:45px;" :value="getBorder(selectedId).size" @input="setBorder(selectedId, 'size', $event.target.value)" title="Ketebalan Garis">
+              <span style="font-size:11px; color:var(--text-faint); margin-right:4px;">px</span>
+              
+              <select :value="getBorder(selectedId).style" @change="setBorder(selectedId, 'style', $event.target.value)" style="flex:1;">
+                <option value="none">Tanpa Garis</option>
+                <option value="solid">Solid (Garis Lurus)</option>
+                <option value="dashed">Dashed (Putus-putus)</option>
+              </select>
+
+              <select :value="getBorder(selectedId).color" @change="setBorder(selectedId, 'color', $event.target.value)" style="flex:1;">
+                <option value="black">Hitam</option>
+                <option value="gray">Abu-abu</option>
+                <option value="red">Merah</option>
+              </select>
+            </div>
+          </div>
+          
+        </div>
+      </template>
+
+      <template v-else>
+        <div class="ptabs">
+          <button :class="{active: rightTab==='page'}" @click="rightTab='page'">Page Attributes</button>
+          <button :class="{active: rightTab==='payload'}" @click="rightTab='payload'">Dummy Data</button>
+        </div>
+
+        <div v-if="rightTab==='page'" class="psection">
+          <div class="eyebrow">Page Attribute</div>
+          <div class="row2">
+            <div class="field"><label>width</label><input type="text" v-model="pageAttrs.width" @change="pushHistory(); saveLocal();"></div>
+            <div class="field"><label>height</label><input type="text" v-model="pageAttrs.height" @change="pushHistory(); saveLocal();"></div>
+            <div class="field"><label>background</label><input type="text" v-model="pageAttrs.background" @change="pushHistory(); saveLocal();"></div>
+            <div class="field"><label>background-size</label><input type="text" v-model="pageAttrs['background-size']" @change="pushHistory(); saveLocal();"></div>
+            <div class="field"><label>background-repeat</label><input type="text" v-model="pageAttrs['background-repeat']" @change="pushHistory(); saveLocal();"></div>
+            <div class="field"><label>background-attachment</label><input type="text" v-model="pageAttrs['background-attachment']" @change="pushHistory(); saveLocal();"></div>
+            <div class="field"><label>padding-left</label><input type="text" v-model="pageAttrs['padding-left']" @change="pushHistory(); saveLocal();"></div>
+            <div class="field"><label>padding-right</label><input type="text" v-model="pageAttrs['padding-right']" @change="pushHistory(); saveLocal();"></div>
+            <div class="field"><label>font-family</label><input type="text" v-model="pageAttrs['font-family']" @change="pushHistory(); saveLocal();"></div>
+          </div>
+        </div>
+
+        <div v-else class="psection">
+          <div class="eyebrow">Dummy Data (Payload)
+            <button class="btn icon" @click="formatPayload" title="Pretty-print">{ }</button>
+          </div>
+          <div class="field">
+            <textarea style="min-height:360px;" v-model="payloadStr" @change="pushHistory(); saveLocal();"></textarea>
+            <div class="hint" :style="{color: payloadError ? 'var(--danger)' : 'var(--text-faint)'}">
+              {{ payloadError || 'Valid JSON. Referenced in expressions as document_data.*' }}
+            </div>
+          </div>
+        </div>
+
+        <div class="empty-state" v-if="!selectedId">
+          Klik elemen apa pun di kertas untuk mengatur konten, susunan (layout), dan tampilannya di sini.
+        </div>
+      </template>
+
+    </div>
+  </div>
+</div>
+
+<script>
+const { createApp } = Vue;
+
+const CT = {
+  container: 0, variable: 2, label: 3, table: 4, image: 5,
+  barcode: 6, loopvariable: 7, rupiah: 8, qrcode: 9, qrcodecustom: 10,
+};
+const CT_LABELS = {
+  0:'Container', 2:'Variable', 3:'Label', 4:'Table', 5:'Image',
+  6:'Barcode', 7:'Loop Variable', 8:'Number → Rupiah', 9:'QR Code', 10:'QR Code Custom',
+};
+
+const ICONS = {
+  container:'<svg class="i" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>',
+  variable:'<svg class="i" viewBox="0 0 24 24"><path d="M8 4 4 12l4 8M16 4l4 8-4 8"/></svg>',
+  label:'<svg class="i" viewBox="0 0 24 24"><path d="M4 7h16M4 12h10M4 17h13"/></svg>',
+  table:'<svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="1"/><path d="M3 10h18M3 16h18M9 4v16"/></svg>',
+  image:'<svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M21 16l-5.5-5.5L4 21"/></svg>',
+  barcode:'<svg class="i" viewBox="0 0 24 24"><path d="M4 5v14M8 5v14M11 5v14M15 5v14M17 5v14M20 5v14"/></svg>',
+  loopvariable:'<svg class="i" viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 14-5M20 12a8 8 0 0 1-14 5"/><path d="M18 3v4h-4M6 21v-4h4"/></svg>',
+  rupiah:'<svg class="i" viewBox="0 0 24 24"><path d="M7 4h5a4 4 0 0 1 0 8H7V4Z"/><path d="M7 12l7 8M5 9h9M5 13h5"/></svg>',
+  qrcode:'<svg class="i" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3h-3zM19 14h2v2h-2zM14 19h2v2h-2zM19 19h2v2h-2z"/></svg>',
+  qrcodecustom:'<svg class="i" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h7v7h-7z"/><circle cx="17.5" cy="17.5" r="1.4" fill="currentColor" stroke="none"/></svg>',
+};
+
+const PALETTE = [
+  {type:'container', label:'Wadah / Kotak', hint:'Untuk mengelompokkan elemen', icon:ICONS.container},
+  {type:'variable', label:'Data Otomatis', hint:'Tarik data dari sistem', icon:ICONS.variable},
+  {type:'label', label:'Teks Biasa', hint:'Ketik teks statis/manual', icon:ICONS.label},
+  {type:'table', label:'Tabel Data', hint:'Daftar barang/item', icon:ICONS.table},
+  {type:'image', label:'Gambar / Logo', hint:'Link gambar (URL)', icon:ICONS.image},
+  {type:'barcode', label:'Barcode', hint:'Cetak Barcode 1D', icon:ICONS.barcode},
+  {type:'loopvariable', label:'Data Dalam Tabel', hint:'Gunakan di dalam tabel', icon:ICONS.loopvariable},
+  {type:'rupiah', label:'Format Rupiah', hint:'Ubah angka ke format Rp', icon:ICONS.rupiah},
+  {type:'qrcode', label:'QR Code', hint:'Kode QR Standar', icon:ICONS.qrcode},
+  {type:'qrcodecustom', label:'QR Code Khusus', hint:'Kode QR dengan style', icon:ICONS.qrcodecustom},
+];
+
+if (!String.prototype.format) {
+  String.prototype.format = function (fmt) {
+    const d = new Date(this);
+    if (isNaN(d.getTime())) return this.toString();
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const pad = n => String(n).padStart(2, '0');
+    return String(fmt).replace('YYYY', d.getFullYear()).replace('MMM', months[d.getMonth()])
+      .replace('MM', pad(d.getMonth() + 1)).replace('DD', pad(d.getDate()))
+      .replace('HH', pad(d.getHours())).replace('mm', pad(d.getMinutes())).replace('ss', pad(d.getSeconds()));
+  };
+}
+
+const ElementNode = {
+  name: 'element-node',
+  props: ['id'],
+  computed: {
+    node() { return this.$root.elements[this.id]; },
+    // --- MODIFIKASI: Cek apakah ID ada di dalam array yang dipilih ---
+    isSelected() { return this.$root.selectedIds.includes(this.id); },
+    isDesign() { return this.$root.mode === 'design'; },
+    cssStyle() { return this.$root.styleFromCssAttr(this.node.css_attribute); },
+    layoutStyle() { return this.$root.styleFromLayout(this.node.layout_setting); },
+    // --- MODIFIKASI EVALUASI PREVIEW ---
+    previewValue() { 
+      if (this.$root.mode !== 'preview') return null;
+      let val = this.$root.evalContent(this.node.content, this.node.content_type);
+      let formatStr = this.$root.getSetting(this.id, 'format'); // Ambil format
+      if (formatStr && val) val = String(val).format(formatStr); // Terapkan format
+      return val;
+    },
+    previewTableRows() {
+      if (this.$root.mode !== 'preview' || this.node.content_type !== 4) return [];
+      
+      // Mengambil data baris tabel dari payload dummy
+      let arr = this.$root.safeEval(this.node.table_data.data_source, this.$root.payloadObject);
+      return Array.isArray(arr) ? arr : [];
+    }
+  }, // <-- Ini menutup blok "computed"
+
+  // Panggil renderCodes saat elemen dimuat dan diperbarui
+  mounted() {
+    this.renderCodes();
+  },
+  updated() {
+    this.renderCodes();
+  },
+
+  methods: { // <-- Ini membuka blok "methods"
+    evalColumn(col, row, idx) {
+      if (col.content_type === 3) return col.content;
+      if (String(col.content).trim() === '1') return idx + 1; 
+      let val = this.$root.safeEval(col.content, row);
+      if (col.format && val) val = String(val).format(col.format); // Terapkan format untuk tabel
+      return val;
+    },
+    renderCodes() {
+      if (this.$root.mode !== 'preview') return;
+      if (this.node.content_type === 6 && this.$refs.bcCanvas && typeof JsBarcode !== 'undefined') {
+        try { JsBarcode(this.$refs.bcCanvas, String(this.previewValue || '000000'), { displayValue: true, height: 34, fontSize: 11, margin: 4 }); } catch (e) {}
+      }
+      if ((this.node.content_type === 9 || this.node.content_type === 10) && this.$refs.qrDiv && typeof QRCode !== 'undefined') {
+        this.$refs.qrDiv.innerHTML = '';
+        try { new QRCode(this.$refs.qrDiv, { text: String(this.previewValue || ' '), width: 96, height: 96 }); } catch (e) {}
+      }
+    },
+    // --- TAMBAHAN KODE RESIZE ---
+    startResize(e, axis) {
+      this.resizeAxis = axis;
+      this.startX = e.clientX;
+      this.startY = e.clientY;
+      const rect = this.$el.getBoundingClientRect();
+      const zoom = this.$root.zoom / 100;
+      this.startWidth = rect.width / zoom;
+      this.startHeight = rect.height / zoom;
+
+      this.onMouseMove = this.handleMouseMove.bind(this);
+      this.onMouseUp = this.handleMouseUp.bind(this);
+      window.addEventListener('mousemove', this.onMouseMove);
+      window.addEventListener('mouseup', this.onMouseUp);
+    },
+    handleMouseMove(e) {
+      const zoom = this.$root.zoom / 100;
+      const dx = (e.clientX - this.startX) / zoom;
+      const dy = (e.clientY - this.startY) / zoom;
+      
+      if (this.resizeAxis.includes('x')) {
+        let newW = this.startWidth + dx;
+        
+        const parent = this.$el.parentElement;
+        if (parent) {
+          const computedStyle = window.getComputedStyle(parent);
+          const padLeft = parseFloat(computedStyle.paddingLeft) || 0;
+          const padRight = parseFloat(computedStyle.paddingRight) || 0;
+          const parentInnerWidth = (parent.getBoundingClientRect().width / zoom) - padLeft - padRight;
+          
+          newW = Math.max(20, Math.min(newW, parentInnerWidth));
+          
+          let flexPercent = (newW / parentInnerWidth) * 100;
+          flexPercent = Math.max(5, Math.min(100, flexPercent));
+          
+          // --- PERBAIKAN: Cek apakah Parent adalah baris (Row) atau kolom (Column) ---
+          const isFlexRow = computedStyle.display === 'flex' && computedStyle.flexDirection === 'row';
+          
+          if (isFlexRow) {
+            // Jika tersusun ke samping (Row), aman menggunakan fxFlex
+            this.node.layout_setting.fxFlex = Math.round(flexPercent) + '%';
+            this.$root.setCss(this.id, 'width', '', true); // Kosongkan width statis agar tidak bentrok
+          } else {
+            // Jika tersusun ke bawah (Column) atau wadah biasa, HANYA ubah CSS Width!
+            this.$root.setCss(this.id, 'width', Math.round(flexPercent) + '%', true);
+            this.node.layout_setting.fxFlex = ''; // Kosongkan fxFlex agar tinggi (Y-axis) tidak ikut memanjang
+          }
+          // --------------------------------------------------------------------------
+          
+        } else {
+          newW = Math.max(20, newW);
+          this.$root.setCss(this.id, 'width', Math.round(newW) + 'px', true);
+        }
+      }
+      
+      if (this.resizeAxis.includes('y')) {
+        const newH = Math.max(20, this.startHeight + dy);
+        this.$root.setCss(this.id, 'min-height', Math.round(newH) + 'px', true);
+      }
+    },
+
+    handleMouseUp() {
+      window.removeEventListener('mousemove', this.onMouseMove);
+      window.removeEventListener('mouseup', this.onMouseUp);
+      this.$root.pushHistory();
+      this.$root.saveLocal();
+    },
+    // --- TAMBAHAN KODE EDIT LABEL LANGSUNG ---
+    onLabelInput(e) {
+      // Setiap kali mengetik di kanvas, otomatis mengubah data 'content'
+      // Sehingga teks di panel sebelah kanan juga ikut berubah
+      this.node.content = e.target.innerText;
+    },
+    onLabelBlur(e) {
+      // Saat selesai mengetik (kursor pindah), simpan riwayat untuk fitur Undo/Redo
+      this.node.content = e.target.innerText;
+      this.$root.pushHistory();
+      this.$root.saveLocal();
+    },
+    onClick(e) {
+      e.stopPropagation();
+      if (this.isDesign) {
+        this.$root.selectElement(this.id, e);
+      }
+    },
+    onDragStart(e) {
+      e.stopPropagation();
+      if (this.isDesign) {
+        e.dataTransfer.setData('text/plain', 'move:' + this.id);
+      }
+    },
+    onDragOverContainer(e) {
+      if (this.node.content_type === 0 && this.isDesign) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    },
+    onDropContainer(e) {
+      if (this.node.content_type === 0 && this.isDesign) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.$root.handleDrop(e.dataTransfer.getData('text/plain'), this.id);
+      }
+    },
+    // ----------------------------------------
+  },
+  template: `
+    <div class="el-node"
+         :class="{'el-selected': isSelected}"
+         :style="[cssStyle, layoutStyle]"
+         :draggable="isDesign"
+         @click="onClick"
+         @dragstart="onDragStart"
+         @dragover="onDragOverContainer"
+         @drop="onDropContainer">
+
+      <div class="canvas-toolbar" v-if="isSelected && isDesign">
+        <div class="ct-name" style="font-size:10px;">{{ $root.typeLabel(node.content_type) }}</div>
+        <button @click.stop="$root.selectParent(id)" title="Pilih Wadah (Parent)">📦</button>
+        <button @click.stop="$root.moveSibling(id,-1)" title="Pindah Atas / Kiri">⬆️</button>
+        <button @click.stop="$root.moveSibling(id,1)" title="Pindah Bawah / Kanan">⬇️</button>
+        <!-- --- TAMBAHAN TOMBOL BAGI RATA LEBAR --- -->
+        <button @click.stop="$root.distributeWidth(id)" title="Bagi Rata Lebar Sama Rata">↔️</button>
+        <!-- --- TAMBAHAN TOMBOL DUPLIKAT --- -->
+        <button @click.stop="$root.duplicateElement(id)" title="Duplikat (Copy)">📄</button>
+        <!-- -------------------------------- -->
+        <button @click.stop="$root.removeSelected()" title="Hapus">🗑️</button>
+      </div>
+
+      <!-- --- TAMBAHAN KODE RESIZE --- -->
+      <div class="resize-handle right" v-if="isSelected && isDesign" @mousedown.stop.prevent="startResize($event, 'x')"></div>
+      <div class="resize-handle bottom" v-if="isSelected && isDesign" @mousedown.stop.prevent="startResize($event, 'y')"></div>
+      <div class="resize-handle corner" v-if="isSelected && isDesign" @mousedown.stop.prevent="startResize($event, 'xy')"></div>
+      <!-- ---------------------------- -->
+
+      <template v-if="node.content_type===4">
+        <table class="el-table">
+          <thead v-if="node.table_data.columns.some(c=>Number(c.show_header)===1)">
+            <tr>
+              <th v-for="(col,ci) in node.table_data.columns" :key="'h'+ci" :style="$root.styleFromCssAttr(col.header_css_attribute)">{{ col.title }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-if="isDesign">
+              <td v-for="(col,ci) in node.table_data.columns" :key="'d'+ci" :style="$root.styleFromCssAttr(col.css_attribute)">
+                <!-- --- MODIFIKASI: NOWRAP & OVERFLOW HIDDEN --- -->
+                <span style="display: block; width: 100%; font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" :title="'VAR(' + col.content + ')'">VAR({{ col.content }})</span>
+              </td>
+            </tr>
+            <tr v-else v-for="(row,ridx) in previewTableRows" :key="ridx">
+              <td v-for="(col,ci) in node.table_data.columns" :key="'p'+ci" :style="$root.styleFromCssAttr(col.css_attribute)">
+                {{ evalColumn(col,row,ridx) }}
+              </td>
+            </tr>
+            <tr v-if="!isDesign && previewTableRows.length===0">
+              <td :colspan="node.table_data.columns.length||1" style="text-align:center;color:#999;padding:8px;">No rows</td>
+            </tr>
+          </tbody>
+        </table>
+      </template>
+
+      <template v-else-if="node.content_type===5">
+        <!-- --- TAMBAHKAN WORD-BREAK DAN WHITE-SPACE --- -->
+        <div v-if="isDesign" style="font-family: monospace; word-break: break-all; white-space: pre-wrap;">IMAGE({{ node.content }})</div>
+        <img v-else :src="previewValue" class="el-image-preview" @error="$event.target.style.opacity=0.15">
+      </template>
+
+      <template v-else-if="node.content_type===6">
+        <!-- --- TAMBAHKAN WORD-BREAK DAN WHITE-SPACE --- -->
+        <div v-if="isDesign" style="font-family: monospace; word-break: break-all; white-space: pre-wrap;">BARCODE({{ node.content }})</div>
+        <div v-else class="barcode-render"><svg ref="bcCanvas"></svg></div>
+      </template>
+
+      <template v-else-if="node.content_type===9 || node.content_type===10">
+        <!-- --- TAMBAHKAN WORD-BREAK DAN WHITE-SPACE --- -->
+        <div v-if="isDesign" style="font-family: monospace; word-break: break-all; white-space: pre-wrap;">QR({{ node.content }})</div>
+        <div v-else class="qr-render" ref="qrDiv"></div>
+      </template>
+
+      <template v-else>
+        <!-- --- TAMBAHAN AGAR VARIABLE BISA DIKETIK LANGSUNG --- -->
+        <!-- MODIFIKASI: Mengganti pre-wrap dengan nowrap & overflow hidden -->
+        <span v-if="[2,7,8].includes(node.content_type) && isDesign" 
+              contenteditable="true"
+              @blur="onLabelBlur"
+              style="display:block; width:100%; font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; outline: 1px dashed rgba(0,0,0,0.1); min-height: 20px; cursor: text; background: rgba(91,141,239,.1); padding: 2px;"
+              title="Ketik Data Otomatis, cth: document_data.field"
+              v-text="node.content"></span>
+        <!-- ---------------------------------------------------- -->
+
+        <span v-else-if="[2,7,8].includes(node.content_type) && !isDesign" style="display:block; width:100%; white-space:pre-wrap; word-break: break-word;">{{ previewValue }}</span>
+        
+        <!-- --- TAMBAHAN KODE EDIT LABEL LANGSUNG --- -->
+        <!-- Mode Design: Bisa diketik langsung (contenteditable) -->
+        <span v-else-if="node.content_type === 3 && isDesign" 
+              contenteditable="true"
+              @blur="onLabelBlur"
+              style="display:block; width:100%; white-space:pre-wrap; word-break: break-word; outline: 1px dashed rgba(0,0,0,0.1); min-height: 20px; cursor: text;"
+              v-text="node.content"></span>
+        
+        <!-- Mode Preview & Elemen Selain Label -->
+        <span v-else-if="node.content_type !== 0 && node.content" 
+              style="display:block; width:100%; white-space:pre-wrap; word-break: break-word;">{{ node.content }}</span>
+        <!-- ---------------------------------------- -->
+
+        <element-node v-for="cid in node.item_list" :key="cid" :id="cid"></element-node>
+
+        <div class="el-empty-drop" v-if="isDesign && node.content_type===0 && (!node.item_list || node.item_list.length===0)">+ Tarik elemen ke dalam kotak ini</div>
+      </template>
+    </div>
+  `,
+};
+
+const app = createApp({
+  data() {
+    return {
+      STORAGE_KEY: 'vptg_autosave_v1',
+      PALETTE, CT, CT_LABELS,
+
+      templateId: 'New Template', companyId: '', description: '', documentType: 0,
+      extraConfigs: {}, // Menyimpan konfigurasi bawaan sistem WMS agar tidak hilang
+      payloadStr: '{\n  "delivery_order": {\n    "PO": "",\n    "customer": { "name": "" }\n  }\n}',
+
+      pageAttrs: {
+        width: '21cm', height: '', background: 'white', 'background-size': '',
+        'background-repeat': '', 'background-attachment': '', 'padding-left': '10px',
+        'padding-right': '10px', 'font-family': '',
+      },
+
+      elements: {},     
+      rootChildren: [],  
+      nextId: 1,
+
+      selectedId: null,
+      selectedIds: [], // --- TAMBAHAN VARIABEL MULTI-SELECT ---
+      rightTab: 'page',
+      mode: 'design',
+      zoom: 100,
+
+      history: [], historyIndex: -1, suppressHistory: false,
+      showRestorePrompt: false,
+      autosaveTimer: null,
+    };
+  },
+
+  computed: {
+    pageStyle() {
+      const pa = this.pageAttrs;
+      const s = { width: pa.width || '21cm' };
+      if (pa.height) s.height = pa.height;
+      if (pa.background) s.background = pa.background;
+      if (pa['background-size']) s.backgroundSize = pa['background-size'];
+      if (pa['background-repeat']) s.backgroundRepeat = pa['background-repeat'];
+      if (pa['background-attachment']) s.backgroundAttachment = pa['background-attachment'];
+      if (pa['padding-left']) s.paddingLeft = pa['padding-left'];
+      if (pa['padding-right']) s.paddingRight = pa['padding-right'];
+      if (pa['font-family']) s.fontFamily = pa['font-family'];
+      return s;
+    },
+    payloadObject() {
+      try { return JSON.parse(this.payloadStr); } catch (e) { return {}; }
+    },
+    payloadError() {
+      try { JSON.parse(this.payloadStr); return ''; } catch (e) { return 'Invalid JSON: ' + e.message; }
+    },
+  },
+
+  methods: {
+    getCss(id, key) {
+      const attr = this.elements[id].css_attribute.find(a => a.k === key);
+      return attr ? attr.v : '';
+    },
+    setCss(id, key, val, skipHistory = false) {
+      const arr = this.elements[id].css_attribute;
+      let attr = arr.find(a => a.k === key);
+      if (!attr) {
+        arr.push({ k: key, v: val });
+      } else {
+        attr.v = val;
+      }
+      // --- MODIFIKASI KODE RESIZE (Hanya simpan saat mouse dilepas) ---
+      if (!skipHistory) {
+        this.pushHistory(); 
+        this.saveLocal();
+      }
+    },
+
+    // --- TAMBAHAN FUNGSI PAGE BREAK ---
+    getPageBreak(id, key) {
+      const arr = this.elements[id].page_break_setting || [];
+      const attr = arr.find(a => a.k === key);
+      return attr ? attr.v : 'auto';
+    },
+    setPageBreak(id, key, val) {
+      let arr = this.elements[id].page_break_setting;
+      if (!arr) {
+        arr = [];
+        this.elements[id].page_break_setting = arr;
+      }
+      let attr = arr.find(a => a.k === key);
+      if (!attr) {
+        arr.push({ k: key, v: val });
+      } else {
+        attr.v = val;
+      }
+      this.pushHistory();
+      this.saveLocal();
+    },
+    // ----------------------------------
+
+    // --- TAMBAHAN FUNGSI PENGATURAN SETTING_LIST ---
+    getSetting(id, key) {
+      const arr = this.elements[id].setting_list || [];
+      const attr = arr.find(a => a.k === key);
+      return attr ? attr.v : '';
+    },
+    setSetting(id, key, val) {
+      let arr = this.elements[id].setting_list;
+      if (!arr) {
+        arr = [];
+        this.elements[id].setting_list = arr;
+      }
+      let attr = arr.find(a => a.k === key);
+      if (!attr) {
+        arr.push({ k: key, v: val });
+      } else {
+        attr.v = val;
+      }
+      this.pushHistory();
+      this.saveLocal();
+    },
+    // -----------------------------------------------
+
+    getBorder(id) {
+      const b = this.getCss(id, 'border') || '';
+      const parts = b.split(' ');
+      let size = 0, style = 'none', color = 'black';
+      
+      if (parts.length >= 3) {
+        size = parseFloat(parts[0]) || 0;
+        style = parts[1];
+        color = parts.slice(2).join(' ');
+      } else if (b && b !== 'none' && b !== '') {
+        size = 1; style = 'solid'; color = 'black';
+      }
+      return { size, style, color };
+    },
+    setBorder(id, part, val) {
+      const curr = this.getBorder(id);
+      curr[part] = val;
+      
+      if (part === 'size' && parseFloat(val) > 0 && curr.style === 'none') {
+        curr.style = 'solid';
+      }
+
+      if (curr.size === '' || parseFloat(curr.size) === 0) {
+         this.setCss(id, 'border', '');
+      } else {
+         this.setCss(id, 'border', `${curr.size}px ${curr.style} ${curr.color}`);
+      }
+    },
+
+    typeLabel(ct) { return CT_LABELS[ct] || 'Element'; },
+
+    styleFromCssAttr(arr) {
+      const s = {};
+      (arr || []).forEach(({ k, v }) => { 
+        if (v !== '' && v != null) s[k] = v; 
+      });
+      return s;
+    },
+
+    mapAlign(v) {
+      const m = { start: 'flex-start', end: 'flex-end', center: 'center', 'space-between': 'space-between', 'space-around': 'space-around' };
+      return m[v] || v;
+    },
+    styleFromLayout(o) {
+      o = o || {};
+      const s = {};
+      if (o.fxLayout && o.fxLayout !== 'none') {
+        s.display = 'flex';
+        s.flexDirection = o.fxLayout === 'column' ? 'column' : 'row';
+      }
+      
+      const dir = s.flexDirection || 'row';
+      if (o.fxLayoutAlign_horizontal && o.fxLayoutAlign_horizontal !== 'none') {
+        s[dir === 'row' ? 'justifyContent' : 'alignItems'] = this.mapAlign(o.fxLayoutAlign_horizontal);
+      }
+      if (o.fxLayoutAlign_vertical && o.fxLayoutAlign_vertical !== 'none') {
+        s[dir === 'row' ? 'alignItems' : 'justifyContent'] = this.mapAlign(o.fxLayoutAlign_vertical);
+      }
+      if (o.fxLayoutGap && o.fxLayoutGap !== 'none') s.gap = o.fxLayoutGap;
+      
+      Object.assign(s, this.flexBasisFrom(o.fxFlex));
+      return s;
+    },
+    flexBasisFrom(fxFlex) {
+      if (!fxFlex || fxFlex === 'none') return {};
+      let basis = String(fxFlex).trim();
+      if (basis === '') return {};
+      if (!basis.includes('%') && !basis.includes('px') && !basis.includes('vw') && !isNaN(parseFloat(basis))) {
+        basis += '%';
+      }
+      return { flex: '0 0 ' + basis, maxWidth: basis, boxSizing: 'border-box' };
+    },
+
+    safeEval(expr, dataRoot) {
+      if (!expr || !String(expr).trim()) return '';
+      try {
+        const fn = new Function('document_data', 'return (' + expr + ');');
+        const result = fn(dataRoot || {});
+        return result == null ? '' : result;
+      } catch (e) { return '⚠ ' + expr; }
+    },
+    evalContent(expr, contentType) {
+      const val = this.safeEval(expr, this.payloadObject);
+      if (contentType === 8) { 
+        const num = parseFloat(val);
+        if (!isNaN(num)) return 'Rp' + num.toLocaleString('id-ID');
+      }
+      return val;
+    },
+
+    // --- MODIFIKASI: FUNGSI KLIK MULTI-SELECT ---
+    selectElement(id, e) { 
+      // Jika pengguna menekan Shift atau Ctrl saat mengklik
+      if (e && (e.shiftKey || e.ctrlKey || e.metaKey)) {
+        if (this.selectedIds.includes(id)) {
+          // Batal pilih jika sudah terpilih
+          this.selectedIds = this.selectedIds.filter(x => x !== id);
+          this.selectedId = this.selectedIds.length > 0 ? this.selectedIds[this.selectedIds.length - 1] : null;
+        } else {
+          // Tambahkan ke seleksi
+          this.selectedIds.push(id);
+          this.selectedId = id;
+        }
+      } else {
+        // Klik biasa (Pilih tunggal)
+        this.selectedIds = [id];
+        this.selectedId = id; 
+      }
+    },
+    deselect(e) { 
+      if (e && e.target === e.currentTarget) { 
+        this.selectedId = null; 
+        this.selectedIds = []; 
+      } 
+    },
+
+    // --- MODIFIKASI: TERAPKAN VISUAL CSS SECARA MASSAL ---
+    setCss(id, key, val, skipHistory = false) {
+      // Pastikan target adalah semua yang di-select (jika mengedit dari panel kanan)
+      const targetIds = this.selectedIds.includes(id) ? this.selectedIds : [id];
+      
+      targetIds.forEach(targetId => {
+        const arr = this.elements[targetId].css_attribute;
+        let attr = arr.find(a => a.k === key);
+        if (!attr) {
+          arr.push({ k: key, v: val });
+        } else {
+          attr.v = val;
+        }
+      });
+
+      if (!skipHistory) {
+        this.pushHistory(); 
+        this.saveLocal();
+      }
+    },
+
+    // --- TAMBAHAN FUNGSI UNTUK CSS KOLOM TABEL ---
+    getColCss(col, type, key) {
+      const arr = type === 'header' ? col.header_css_attribute : col.css_attribute;
+      const attr = (arr || []).find(a => a.k === key);
+      return attr ? attr.v : '';
+    },
+    setColCss(col, type, key, val) {
+      const arr = type === 'header' ? col.header_css_attribute : col.css_attribute;
+      if (!arr) return;
+      let attr = arr.find(a => a.k === key);
+      if (!attr) {
+        arr.push({ k: key, v: val });
+      } else {
+        attr.v = val;
+      }
+      this.pushHistory();
+      this.saveLocal();
+    },
+    // ---------------------------------------------
+
+    // --- MODIFIKASI: HAPUS MASSAL ---
+    removeSelected() {
+      if (this.selectedIds.length === 0) return;
+      this.selectedIds.forEach(id => {
+        this.removeFromParent(id);
+        this.deleteRecursive(id);
+      });
+      this.selectedId = null;
+      this.selectedIds = [];
+      this.pushHistory(); 
+      this.saveLocal();
+    },
+
+    defaultCssAttr() {
+      // PERBAIKAN STRUKTUR CSS 1: Memperluas Key dan Menghapus Margin (Identik dgn Ori.json)
+      return [
+        { k: 'width', v: '100%' }, 
+        { k: 'height', v: '' },
+        { k: 'min-height', v: '' }, 
+        { k: 'text-align', v: 'left' },
+        { k: 'font', v: '' }, 
+        { k: 'font-size', v: '14px' }, 
+        { k: 'font-style', v: '' },
+        { k: 'color', v: '' }, 
+        { k: 'vertical-align', v: '' }, 
+        { k: 'font-weight', v: '' },
+        { k: 'text-transform', v: '' }, 
+        { k: 'border', v: '' },
+        { k: 'padding', v: '' },
+        { k: 'border-top', v: '' },
+        { k: 'border-bottom', v: '' },
+        { k: 'border-left', v: '' },
+        { k: 'border-right', v: '' },
+        { k: 'padding-top', v: '' },
+        { k: 'padding-bottom', v: '' },
+        { k: 'padding-left', v: '' },
+        { k: 'padding-right', v: '' },
+        { k: 'background-color', v: '' },
+        { k: 'font-family', v: '' },
+        { k: 'letter-spacing', v: '' },
+        { k: 'background-image', v: '' },
+        { k: 'background-size', v: '' },
+        { k: 'word-break', v: '' },
+        { k: 'white-space', v: '' }
+      ];
+    },
+    defaultLayout() {
+      return { fxLayout: 'row', fxLayoutAlign_horizontal: 'none', fxLayoutAlign_vertical: 'none', fxLayoutGap: 'none', fxFlex: '' };
+    },
+    defaultPageBreak() {
+      return [{ k: 'page-break-after', v: 'auto' }, { k: 'page-break-inside', v: 'avoid' }, { k: 'page-break-before', v: 'auto' }];
+    },
+    createColumn() {
+      let hCss = this.defaultCssAttr();
+      let cCss = this.defaultCssAttr();
+      
+      let wHeader = hCss.find(a => a.k === 'width');
+      if (wHeader) wHeader.v = '';
+      let wCell = cCss.find(a => a.k === 'width');
+      if (wCell) wCell.v = '';
+
+      let bHeader = hCss.find(a => a.k === 'border');
+      if (bHeader) bHeader.v = '1px solid black';
+      let bCell = cCss.find(a => a.k === 'border');
+      if (bCell) bCell.v = '1px solid black';
+      
+      let taHeader = hCss.find(a => a.k === 'text-align');
+      if (taHeader) taHeader.v = 'center';
+
+      return {
+        header_css_attribute: hCss, css_attribute: cCss,
+        show_header: 1, name: 'Column-' + Date.now().toString(36), title: 'Header',
+        content_type: 2, content: 'document_data.field',
+      };
+    },
+    createElementByType(type) {
+      const id = this.nextId++;
+      const ct = CT[type] ?? CT.label;
+      const contentDefaults = {
+        [CT.container]: 'Title', [CT.label]: 'New Label', [CT.variable]: 'document_data.field',
+        [CT.image]: 'document_data.image_url', [CT.barcode]: 'document_data.barcode',
+        [CT.loopvariable]: 'document_data.field', [CT.rupiah]: 'document_data.total_price',
+        [CT.qrcode]: 'document_data.reference_no', [CT.qrcodecustom]: 'document_data.reference_no',
+      };
+      let defLayout = this.defaultLayout();
+      if (ct === 0) defLayout.fxLayout = 'row';
+
+      const node = {
+        element_id: id, tag: 'div', content_type: ct,
+        content: contentDefaults[ct] ?? '',
+        css_attribute: this.defaultCssAttr(), layout_setting: defLayout,
+        page_break_setting: this.defaultPageBreak(),
+        table_data: { data_source: '', columns: [] },
+        setting_list: ct === CT.table ? [{ k: 'min-rows', v: '' }, { k: 'max-rows', v: '' }] : [],
+        item_list: [],
+      };
+      if (ct === CT.table) { node.table_data.data_source = 'document_data.items'; node.table_data.columns = [this.createColumn()]; }
+      return node;
+    },
+
+    getDescendants(id, acc) {
+      acc = acc || new Set();
+      const n = this.elements[id]; if (!n) return acc;
+      (n.item_list || []).forEach(cid => { acc.add(cid); this.getDescendants(cid, acc); });
+      return acc;
+    },
+    
+    removeFromParent(id) {
+      this.rootChildren = this.rootChildren.filter(x => x !== id);
+      for (const key in this.elements) {
+        if (this.elements[key].item_list) {
+          this.elements[key].item_list = this.elements[key].item_list.filter(x => x !== id);
+        }
+      }
+    },
+    findParentInfo(id) {
+      const ri = this.rootChildren.indexOf(id);
+      if (ri >= 0) return { list: this.rootChildren, index: ri };
+      for (const key in this.elements) {
+        const arr = this.elements[key].item_list;
+        const i = arr.indexOf(id);
+        if (i >= 0) return { list: arr, index: i };
+      }
+      return null;
+    },
+
+    selectParent(id) {
+      const info = this.findParentInfo(id);
+      if (!info || info.list === this.rootChildren) return; 
+      
+      for (const key in this.elements) {
+        if (this.elements[key].item_list === info.list) {
+          this.selectElement(Number(key));
+          break;
+        }
+      }
+    },
+    
+    moveSibling(id, dir) {
+      const info = this.findParentInfo(id); 
+      if (!info) return;
+      
+      const newIdx = info.index + dir;
+
+      if (newIdx < 0 || newIdx >= info.list.length) {
+        let parentId = null;
+        for (const key in this.elements) {
+          if (this.elements[key].item_list === info.list) {
+            parentId = Number(key);
+            break;
+          }
+        }
+        
+        if (parentId != null) {
+          const parentInfo = this.findParentInfo(parentId);
+          if (parentInfo) {
+            const item = info.list.splice(info.index, 1)[0]; 
+            const insertIdx = parentInfo.index + (dir < 0 ? 0 : 1);
+            parentInfo.list.splice(insertIdx, 0, item);
+            this.pushHistory(); this.saveLocal();
+          }
+        }
+        return; 
+      }
+
+      const item = info.list.splice(info.index, 1)[0];
+      info.list.splice(newIdx, 0, item);
+      this.pushHistory(); this.saveLocal();
+    },
+
+    handleDrop(data, parentId) {
+      if (!data) return;
+      if (data.startsWith('new:')) {
+        const type = data.slice(4);
+        const node = this.createElementByType(type);
+        this.elements[node.element_id] = node;
+        
+        if (parentId == null) {
+          if (!this.rootChildren.includes(node.element_id)) this.rootChildren.push(node.element_id);
+        } else {
+          if (!this.elements[parentId].item_list.includes(node.element_id)) this.elements[parentId].item_list.push(node.element_id);
+        }
+        this.selectElement(node.element_id);
+      } else if (data.startsWith('move:')) {
+        const id = Number(data.slice(5));
+        if (id === parentId) return;
+        if (parentId != null && this.getDescendants(id).has(parentId)) return; 
+        
+        this.removeFromParent(id);
+        
+        if (parentId == null) {
+          if (!this.rootChildren.includes(id)) this.rootChildren.push(id);
+        } else {
+          if (!this.elements[parentId].item_list.includes(id)) this.elements[parentId].item_list.push(id);
+        }
+      }
+      this.pushHistory(); this.saveLocal();
+    },
+    onPaletteDragStart(e, type) { e.dataTransfer.setData('text/plain', 'new:' + type); },
+
+    deleteRecursive(id) {
+      const n = this.elements[id]; if (!n) return;
+      (n.item_list || []).slice().forEach(cid => this.deleteRecursive(cid));
+      delete this.elements[id];
+    },
+    // --- TAMBAHAN FUNGSI DUPLIKAT ---
+    duplicateElement(id) {
+      const info = this.findParentInfo(id);
+      if (!info) return; // Cegah error jika elemen tidak ditemukan letaknya
+
+      // Fungsi rekursif untuk menggandakan elemen dan semua anaknya
+      const cloneNode = (sourceId) => {
+        const source = this.elements[sourceId];
+        if (!source) return null;
+
+        const newId = this.nextId++;
+        // Kloning data dengan cara aman (Deep Clone via JSON)
+        const clonedData = JSON.parse(JSON.stringify(source));
+        clonedData.element_id = newId;
+        
+        // Jika elemen adalah wadah dan memiliki anak, kloning anaknya juga
+        const newItemList = [];
+        if (clonedData.item_list && clonedData.item_list.length > 0) {
+          for (const childId of clonedData.item_list) {
+            const newChildId = cloneNode(childId);
+            if (newChildId !== null) {
+              newItemList.push(newChildId);
+            }
+          }
+        }
+        clonedData.item_list = newItemList;
+
+        // Simpan ke memory sistem
+        this.elements[newId] = clonedData;
+        return newId;
+      };
+
+      const clonedRootId = cloneNode(id);
+      
+      if (clonedRootId !== null) {
+        // Sisipkan elemen baru tepat di bawah elemen yang di-copy
+        info.list.splice(info.index + 1, 0, clonedRootId);
+        
+        // Otomatis pilih elemen hasil copy
+        this.selectElement(clonedRootId);
+        
+        this.pushHistory(); 
+        this.saveLocal();
+      }
+    },
+    // --- TAMBAHAN FUNGSI BAGI RATA LEBAR ---
+    distributeWidth(id) {
+      const info = this.findParentInfo(id);
+      // Pastikan elemen memiliki tempat (parent) dan list anak-anaknya tidak kosong
+      if (!info || !info.list || info.list.length === 0) return;
+
+      const count = info.list.length;
+      // Bagi 100% dengan jumlah kotak, ambil 2 angka di belakang koma (misal: 100 / 3 = 33.33%)
+      const flexValue = (100 / count).toFixed(2) + '%'; 
+
+      // Ubah semua elemen saudara (termasuk dirinya sendiri)
+      info.list.forEach(childId => {
+        const childNode = this.elements[childId];
+        if (childNode) {
+          // Tetapkan porsi persen lebar ke Flexbox Layout
+          childNode.layout_setting.fxFlex = flexValue;
+          
+          // Kosongkan atribut "width" manual di CSS agar tidak bertabrakan dengan sistem Flexbox
+          let attr = childNode.css_attribute.find(a => a.k === 'width');
+          if (attr) attr.v = '';
+        }
+      });
+
+      this.pushHistory();
+      this.saveLocal();
+    },
+    // ---------------------------------------
+    removeSelected() {
+      if (!this.selectedId) return;
+      this.removeFromParent(this.selectedId);
+      this.deleteRecursive(this.selectedId);
+      this.selectedId = null;
+      this.pushHistory(); this.saveLocal();
+    },
+    clearCanvas() {
+      if (!confirm('Clear the entire canvas?')) return;
+      this.elements = {}; this.rootChildren = []; this.selectedId = null; this.nextId = 1;
+      this.pushHistory(); this.saveLocal();
+    },
+
+    addColumn(id) { this.elements[id].table_data.columns.push(this.createColumn()); this.pushHistory(); this.saveLocal(); },
+    removeColumn(id, idx) { this.elements[id].table_data.columns.splice(idx, 1); this.pushHistory(); this.saveLocal(); },
+    colWidth(col) { const a = (col.css_attribute || []).find(a => a.k === 'width'); return a ? a.v : ''; },
+    setColWidth(col, val) {
+      let a = (col.css_attribute || []).find(a => a.k === 'width');
+      if (!a) { a = { k: 'width', v: '' }; col.css_attribute.push(a); }
+      a.v = val;
+      let ha = (col.header_css_attribute || []).find(a => a.k === 'width');
+      if (!ha) { ha = { k: 'width', v: '' }; col.header_css_attribute.push(ha); }
+      ha.v = val;
+    },
+
+    formatPayload() {
+      try { this.payloadStr = JSON.stringify(JSON.parse(this.payloadStr), null, 2); this.pushHistory(); this.saveLocal(); }
+      catch (e) { alert('Cannot format: ' + e.message); }
+    },
+
+    exportDoc() {
+      const visited = new Set(); 
+      const list = [];
+      
+      const cleanCss = (arr) => {
+          const extendedKeys = [
+              'border-top', 'border-bottom', 'border-left', 'border-right',
+              'padding-top', 'padding-bottom', 'padding-left', 'padding-right',
+              'background-color', 'font-family', 'letter-spacing', 'background-image',
+              'background-size', 'word-break', 'white-space'
+          ];
+          return (arr || []).map(a => {
+              if ((a.v === '' || a.v == null) && extendedKeys.includes(a.k)) {
+                  return { k: a.k };
+              }
+              return { k: a.k, v: a.v ?? '' };
+          });
+      };
+
+      const pushNode = (id) => {
+        const numId = Number(id);
+        if (visited.has(numId)) return; 
+        visited.add(numId);
+        
+        const n = this.elements[numId]; 
+        if (!n) return;
+        
+        (n.item_list || []).forEach(pushNode);
+        
+        list.push({
+          table_data: n.content_type === CT.table
+            ? { data_source: n.table_data.data_source, columns: n.table_data.columns.map(c => ({
+                header_css_attribute: cleanCss(c.header_css_attribute), 
+                css_attribute: cleanCss(c.css_attribute),
+                show_header: Number(c.show_header), name: c.name, title: c.title,
+                content_type: c.content_type, content: c.content,
+                format: c.format || '', // Menyimpan format tanggal
+              })) }
+            : { data_source: '', columns: [] },
+          page_break_setting: n.page_break_setting,
+          css_attribute: cleanCss(n.css_attribute),
+          
+          layout_setting: Object.keys(n.layout_setting || {}).reduce((acc, k) => {
+              let val = n.layout_setting[k];
+              if (k === 'fxLayout' && val === 'none') val = 'row';
+              
+              if (k === 'fxFlex' && (val === '' || val == null)) {
+                  return acc; 
+              }
+              
+              acc.push({ k, v: val });
+              return acc;
+          }, []),
+          
+          item_list: (n.item_list || []).map(cid => ({ element_id: Number(cid) })), 
+          setting_list: n.setting_list || [],
+          element_id: numId, 
+          tag: n.tag || 'div', 
+          location: n.location !== undefined ? n.location : 1,
+          content_type: n.content_type, 
+          content: n.content,
+          initial_pos_x: 0, initial_pos_y: 0, current_pos_x: 0, current_pos_y: 0,
+        });
+      };
+      
+      this.rootChildren.forEach(pushNode);
+      Object.keys(this.elements).forEach(id => { 
+        if (!visited.has(Number(id))) pushNode(Number(id)); 
+      });
+
+      const out = {
+        template_id: this.templateId, company_id: this.companyId, description: this.description,
+        document_type: Number(this.documentType) || 0, variant: 0,
+        payload: this.payloadStr,
+        document_type_name: "", 
+        variant_name: "",       
+        page_css_attribute: Object.keys(this.pageAttrs).map(k => ({ k, v: this.pageAttrs[k] })),
+        document_setting: [{ k: 'header_height', v: '0px' }, { k: 'footer_height', v: '0px' }],
+        element_list: list,
+      };
+
+      Object.keys(this.extraConfigs).forEach(k => {
+        if (this.extraConfigs[k] !== undefined) out[k] = this.extraConfigs[k];
+      });
+
+      return out;
+    },
+    
+    loadDoc(obj, opts) {
+      opts = opts || {};
+      this.templateId = obj.template_id || '';
+      this.companyId = obj.company_id || '';
+      this.description = obj.description || '';
+      this.documentType = obj.document_type ?? 0;
+      
+      this.extraConfigs = {
+        site_authorization: obj.site_authorization,
+        site_config: obj.site_config,
+        site_config_array: obj.site_config_array,
+        header_img_url: obj.header_img_url,
+        document_id: obj.document_id,
+        document_type_name: obj.document_type_name,
+        variant_name: obj.variant_name
+      };
+
+      this.payloadStr = obj.payload || '{}';
+      const pa = {}; (obj.page_css_attribute || []).forEach(({ k, v }) => pa[k] = v);
+      this.pageAttrs = Object.assign({
+        width: '21cm', height: '', background: 'white', 'background-size': '', 'background-repeat': '',
+        'background-attachment': '', 'padding-left': '', 'padding-right': '', 'font-family': '',
+      }, pa);
+
+      const elements = {};
+      (obj.element_list || []).forEach(e => {
+        let layoutObj = this.defaultLayout();
+        if (Array.isArray(e.layout_setting)) {
+          layoutObj = {};
+          e.layout_setting.forEach(({ k, v }) => layoutObj[k] = v);
+          if (layoutObj.fxFlex === undefined) layoutObj.fxFlex = '';
+        }
+        elements[Number(e.element_id)] = {
+          element_id: Number(e.element_id), tag: e.tag || 'div', content_type: e.content_type, content: e.content || '',
+          location: e.location !== undefined ? e.location : 1,
+          css_attribute: e.css_attribute || this.defaultCssAttr(),
+          layout_setting: layoutObj,
+          page_break_setting: e.page_break_setting || this.defaultPageBreak(),
+          table_data: e.table_data || { data_source: '', columns: [] },
+          setting_list: e.setting_list || [],
+          item_list: (e.item_list || []).map(x => Number(x.element_id)), 
+        };
+      });
+      
+      const referenced = new Set();
+      Object.values(elements).forEach(n => n.item_list.forEach(cid => referenced.add(cid)));
+      const topIds = (obj.element_list || []).map(e => Number(e.element_id)).filter(id => !referenced.has(id));
+
+      this.elements = elements; this.rootChildren = topIds; this.selectedId = null;
+      let maxId = 0; Object.keys(elements).forEach(id => { if (Number(id) > maxId) maxId = Number(id); });
+      this.nextId = maxId + 1;
+
+      if (!opts.silent) { this.pushHistory(); this.saveLocal(); }
+    },
+    
+    triggerImport() { this.$refs.fileInput.click(); },
+    onImportFile(e) {
+      const file = e.target.files[0]; if (!file) return;
+      const fileName = file.name.replace(/\.[^/.]+$/, ""); 
+
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        try { 
+          const obj = JSON.parse(ev.target.result); 
+          this.loadDoc(obj); 
+          
+          const currentCompany = this.companyId ? this.companyId : 'KOSONG';
+          this.templateId = `${fileName}_${currentCompany}`;
+          
+          this.pushHistory(); this.saveLocal();
+        }
+        catch (err) { alert('Could not parse JSON file: ' + err.message); }
+      };
+      reader.readAsText(file);
+      e.target.value = '';
+    },
+    downloadExport() {
+      if (!this.companyId || this.companyId.trim() === '') {
+        alert('Gagal Export: "Company ID" wajib diisi terlebih dahulu!');
+        return; 
+      }
+
+      const data = JSON.stringify(this.exportDoc(), null, 2);
+      const blob = new Blob([data], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; 
+      a.download = (this.templateId || 'template').replace(/[^a-z0-9-_ ]/gi, '_') + '.json';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    },
+
+    pushHistory() {
+      if (this.suppressHistory) return;
+      const snap = JSON.stringify(this.exportDoc());
+      if (this.history[this.historyIndex] === snap) return;
+      this.history = this.history.slice(0, this.historyIndex + 1);
+      this.history.push(snap);
+      if (this.history.length > 60) this.history.shift();
+      this.historyIndex = this.history.length - 1;
+    },
+    applySnapshot(snap) {
+      this.suppressHistory = true;
+      this.loadDoc(JSON.parse(snap), { silent: true });
+      this.suppressHistory = false;
+    },
+    undo() { if (this.historyIndex > 0) { this.historyIndex--; this.applySnapshot(this.history[this.historyIndex]); this.saveLocal(); } },
+    redo() { if (this.historyIndex < this.history.length - 1) { this.historyIndex++; this.applySnapshot(this.history[this.historyIndex]); this.saveLocal(); } },
+
+    saveLocal() {
+      clearTimeout(this.autosaveTimer);
+      this.autosaveTimer = setTimeout(() => {
+        try { localStorage.setItem(this.STORAGE_KEY, JSON.stringify(this.exportDoc())); } catch (e) {}
+      }, 300);
+    },
+    restoreAutosave() {
+      try {
+        const raw = localStorage.getItem(this.STORAGE_KEY);
+        if (raw) { this.loadDoc(JSON.parse(raw)); }
+      } catch (e) {}
+      this.showRestorePrompt = false;
+    },
+    discardAutosave() {
+      this.showRestorePrompt = false; 
+      try { localStorage.removeItem(this.STORAGE_KEY); } catch (e) {}
+    },
+
+    // --- TAMBAHAN FUNGSI SHORTCUT KEYBOARD ---
+    handleKeyDown(e) {
+      // Abaikan shortcut jika pengguna sedang mengetik di input form atau mengetik langsung di kanvas
+      const isTyping = ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName) || e.target.isContentEditable;
+      if (isTyping) return;
+
+      // Hapus elemen dengan tombol Delete atau Backspace
+      if ((e.key === 'Delete' || e.key === 'Backspace') && this.selectedId !== null) {
+        e.preventDefault();
+        this.removeSelected();
+      }
+
+      // Undo dengan Ctrl + Z (atau Cmd + Z di Mac)
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        this.undo();
+      }
+
+      // Redo dengan Ctrl + Y (atau Cmd + Shift + Z)
+      if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey))) {
+        e.preventDefault();
+        this.redo();
+      }
+    }
+    // -----------------------------------------
+  },
+
+  mounted() {
+    try { 
+      const hasSave = localStorage.getItem(this.STORAGE_KEY);
+      if (hasSave && hasSave.length > 100) this.showRestorePrompt = true; 
+    } catch (e) {}
+    this.pushHistory();
+    
+    // --- TAMBAHAN AKTIVASI SHORTCUT KEYBOARD ---
+    window.addEventListener('keydown', this.handleKeyDown);
+    // -------------------------------------------
+  },
+  // --- TAMBAHAN PEMBERSIHAN EVENT LISTENER ---
+  beforeUnmount() {
+    window.removeEventListener('keydown', this.handleKeyDown);
+  }
+  // -------------------------------------------
+});
+
+app.component('element-node', ElementNode);
+app.mount('#app');
+</script>
+</body>
+</html>
