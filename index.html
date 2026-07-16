@@ -372,6 +372,14 @@ svg.i{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8;stro
     <div class="props">
 
       <template v-if="selectedId && elements[selectedId]">
+        
+        <!-- --- TAMBAHAN TOMBOL KEMBALI --- -->
+        <button class="btn" style="width: 100%; margin-bottom: 12px; justify-content: center; background: var(--bg-panel-alt);" @click="selectedId = null; selectedIds = []">
+          <svg class="i" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><path d="M15 18l-6-6 6-6"/></svg>
+          Kembali ke Pengaturan Halaman
+        </button>
+        <!-- ------------------------------- -->
+
         <div class="selrow">
           <span class="badge-type">{{ typeLabel(elements[selectedId].content_type) }}</span>
         </div>
@@ -726,25 +734,40 @@ svg.i{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8;stro
           </div>
           <!-- ---------------------------------------------------- -->
 
+          <!-- --- PENGATURAN BORDER KUSTOM (SISI SPESIFIK) --- -->
           <div class="field">
             <label>Garis Tepi (Border)</label>
+            
+            <!-- Pilih Sisi Border -->
+            <div style="margin-bottom:6px;">
+              <select v-model="activeBorderSide" style="width:100%; background:#141620; border:1px solid var(--border-panel); border-radius:4px; padding:6px 7px; color:var(--text-hi);">
+                <option value="border">Kotak (Semua Sisi)</option>
+                <option value="border-top">⬆️ Sisi Atas Saja</option>
+                <option value="border-bottom">⬇️ Sisi Bawah Saja</option>
+                <option value="border-left">⬅️ Sisi Kiri Saja</option>
+                <option value="border-right">➡️ Sisi Kanan Saja</option>
+              </select>
+            </div>
+
+            <!-- Pengaturan Nilai Border Berdasarkan Sisi yang Dipilih -->
             <div style="display:flex; gap:6px; align-items:center;">
-              <input type="number" style="width:45px;" :value="getBorder(selectedId).size" @input="setBorder(selectedId, 'size', $event.target.value)" title="Ketebalan Garis">
+              <input type="number" style="width:45px;" :value="getBorder(selectedId, activeBorderSide).size" @input="setBorder(selectedId, activeBorderSide, 'size', $event.target.value)" title="Ketebalan Garis">
               <span style="font-size:11px; color:var(--text-faint); margin-right:4px;">px</span>
               
-              <select :value="getBorder(selectedId).style" @change="setBorder(selectedId, 'style', $event.target.value)" style="flex:1;">
+              <select :value="getBorder(selectedId, activeBorderSide).style" @change="setBorder(selectedId, activeBorderSide, 'style', $event.target.value)" style="flex:1;">
                 <option value="none">Tanpa Garis</option>
                 <option value="solid">Solid (Garis Lurus)</option>
                 <option value="dashed">Dashed (Putus-putus)</option>
               </select>
 
-              <select :value="getBorder(selectedId).color" @change="setBorder(selectedId, 'color', $event.target.value)" style="flex:1;">
+              <select :value="getBorder(selectedId, activeBorderSide).color" @change="setBorder(selectedId, activeBorderSide, 'color', $event.target.value)" style="flex:1;">
                 <option value="black">Hitam</option>
                 <option value="gray">Abu-abu</option>
                 <option value="red">Merah</option>
               </select>
             </div>
           </div>
+          <!-- ------------------------------------------------ -->
           
         </div>
       </template>
@@ -758,15 +781,54 @@ svg.i{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8;stro
         <div v-if="rightTab==='page'" class="psection">
           <div class="eyebrow">Page Attribute</div>
           <div class="row2">
-            <div class="field"><label>width</label><input type="text" v-model="pageAttrs.width" @change="pushHistory(); saveLocal();"></div>
-            <div class="field"><label>height</label><input type="text" v-model="pageAttrs.height" @change="pushHistory(); saveLocal();"></div>
-            <div class="field"><label>background</label><input type="text" v-model="pageAttrs.background" @change="pushHistory(); saveLocal();"></div>
-            <div class="field"><label>background-size</label><input type="text" v-model="pageAttrs['background-size']" @change="pushHistory(); saveLocal();"></div>
-            <div class="field"><label>background-repeat</label><input type="text" v-model="pageAttrs['background-repeat']" @change="pushHistory(); saveLocal();"></div>
-            <div class="field"><label>background-attachment</label><input type="text" v-model="pageAttrs['background-attachment']" @change="pushHistory(); saveLocal();"></div>
-            <div class="field"><label>padding-left</label><input type="text" v-model="pageAttrs['padding-left']" @change="pushHistory(); saveLocal();"></div>
-            <div class="field"><label>padding-right</label><input type="text" v-model="pageAttrs['padding-right']" @change="pushHistory(); saveLocal();"></div>
-            <div class="field"><label>font-family</label><input type="text" v-model="pageAttrs['font-family']" @change="pushHistory(); saveLocal();"></div>
+            
+            <div class="field">
+              <label>Width</label>
+              <div style="display:flex; gap:4px; align-items:center;">
+                <input type="number" :value="parseFloat(pageAttrs.width) || ''" @input="pageAttrs.width = $event.target.value ? $event.target.value + (String(pageAttrs.width).match(/[a-zA-Z%]+$/) || ['cm'])[0] : ''; pushHistory(); saveLocal();" placeholder="Auto">
+                <select :value="(String(pageAttrs.width).match(/[a-zA-Z%]+$/) || ['cm'])[0]" @change="pageAttrs.width = (parseFloat(pageAttrs.width) || 0) + $event.target.value; pushHistory(); saveLocal();" style="width:55px; padding:6px 2px;">
+                  <option value="cm">cm</option><option value="px">px</option><option value="%">%</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="field">
+              <label>Height</label>
+              <div style="display:flex; gap:4px; align-items:center;">
+                <input type="number" :value="parseFloat(pageAttrs.height) || ''" @input="pageAttrs.height = $event.target.value ? $event.target.value + (String(pageAttrs.height).match(/[a-zA-Z%]+$/) || ['cm'])[0] : ''; pushHistory(); saveLocal();" placeholder="Auto">
+                <select :value="(String(pageAttrs.height).match(/[a-zA-Z%]+$/) || ['cm'])[0]" @change="pageAttrs.height = (parseFloat(pageAttrs.height) || 0) + $event.target.value; pushHistory(); saveLocal();" style="width:55px; padding:6px 2px;">
+                  <option value="cm">cm</option><option value="px">px</option><option value="%">%</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="field"><label>Background</label><input type="text" v-model="pageAttrs.background" @change="pushHistory(); saveLocal();"></div>
+            <div class="field"><label>Background-size</label><input type="text" v-model="pageAttrs['background-size']" @change="pushHistory(); saveLocal();"></div>
+            <div class="field"><label>Background-repeat</label><input type="text" v-model="pageAttrs['background-repeat']" @change="pushHistory(); saveLocal();"></div>
+            <div class="field"><label>Background-attachment</label><input type="text" v-model="pageAttrs['background-attachment']" @change="pushHistory(); saveLocal();"></div>
+
+            <div class="field">
+              <label>Padding-left</label>
+              <div style="display:flex; gap:4px; align-items:center;">
+                <input type="number" :value="parseFloat(pageAttrs['padding-left']) || ''" @input="pageAttrs['padding-left'] = $event.target.value ? $event.target.value + (String(pageAttrs['padding-left']).match(/[a-zA-Z%]+$/) || ['px'])[0] : ''; pushHistory(); saveLocal();" placeholder="Auto">
+                <select :value="(String(pageAttrs['padding-left']).match(/[a-zA-Z%]+$/) || ['px'])[0]" @change="pageAttrs['padding-left'] = (parseFloat(pageAttrs['padding-left']) || 0) + $event.target.value; pushHistory(); saveLocal();" style="width:55px; padding:6px 2px;">
+                  <option value="px">px</option><option value="cm">cm</option><option value="%">%</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="field">
+              <label>Padding-right</label>
+              <div style="display:flex; gap:4px; align-items:center;">
+                <input type="number" :value="parseFloat(pageAttrs['padding-right']) || ''" @input="pageAttrs['padding-right'] = $event.target.value ? $event.target.value + (String(pageAttrs['padding-right']).match(/[a-zA-Z%]+$/) || ['px'])[0] : ''; pushHistory(); saveLocal();" placeholder="Auto">
+                <select :value="(String(pageAttrs['padding-right']).match(/[a-zA-Z%]+$/) || ['px'])[0]" @change="pageAttrs['padding-right'] = (parseFloat(pageAttrs['padding-right']) || 0) + $event.target.value; pushHistory(); saveLocal();" style="width:55px; padding:6px 2px;">
+                  <option value="px">px</option><option value="cm">cm</option><option value="%">%</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="field"><label>Font-family</label><input type="text" v-model="pageAttrs['font-family']" @change="pushHistory(); saveLocal();"></div>
+
           </div>
         </div>
 
@@ -1129,6 +1191,7 @@ const app = createApp({
 
       selectedId: null,
       selectedIds: [], // --- TAMBAHAN VARIABEL MULTI-SELECT ---
+      activeBorderSide: 'border', // <--- TAMBAHAN UNTUK FITUR CUSTOM BORDER
       rightTab: 'page',
       mode: 'design',
       zoom: 100,
@@ -1227,8 +1290,8 @@ const app = createApp({
     },
     // -----------------------------------------------
 
-    getBorder(id) {
-      const b = this.getCss(id, 'border') || '';
+    getBorder(id, side = 'border') {
+      const b = this.getCss(id, side) || '';
       const parts = b.split(' ');
       let size = 0, style = 'none', color = 'black';
       
@@ -1241,8 +1304,8 @@ const app = createApp({
       }
       return { size, style, color };
     },
-    setBorder(id, part, val) {
-      const curr = this.getBorder(id);
+    setBorder(id, side, part, val) {
+      const curr = this.getBorder(id, side);
       curr[part] = val;
       
       if (part === 'size' && parseFloat(val) > 0 && curr.style === 'none') {
@@ -1250,9 +1313,9 @@ const app = createApp({
       }
 
       if (curr.size === '' || parseFloat(curr.size) === 0) {
-         this.setCss(id, 'border', '');
+         this.setCss(id, side, '');
       } else {
-         this.setCss(id, 'border', `${curr.size}px ${curr.style} ${curr.color}`);
+         this.setCss(id, side, `${curr.size}px ${curr.style} ${curr.color}`);
       }
     },
 
