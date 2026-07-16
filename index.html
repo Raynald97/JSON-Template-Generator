@@ -649,11 +649,10 @@ svg.i{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8;stro
             </div>
             <div class="field">
               <label>Margin (Jarak Luar)</label>
-              <div style="display:flex; gap:6px; align-items:center;">
-                <input type="number" :value="parseInt(getCss(selectedId, 'margin')) || 0" @input="setCss(selectedId, 'margin', $event.target.value + 'px')">
-                <span style="font-size:11px; color:var(--text-faint);">px</span>
+              <div style="display:flex; gap:4px; align-items:center;">
+                <input type="text" :value="getCss(selectedId, 'margin') || ''" @change="setCss(selectedId, 'margin', $event.target.value)" placeholder="Cth: auto atau 10px" style="width: 100%;">
               </div>
-              <div class="hint">Jarak antar elemen.</div>
+              <div class="hint">Ketik <b>auto</b> untuk otomatis menengahkan elemen.</div>
             </div>
           </div>
           <!-- -------------------------------------------- -->
@@ -1073,7 +1072,12 @@ const ElementNode = {
          @drop="onDropContainer">
 
       <div class="canvas-toolbar" v-if="isSelected && isDesign">
-        <div class="ct-name" style="font-size:10px;">{{ $root.typeLabel(node.content_type) }}</div>
+        <!-- --- TAMBAHAN DROPDOWN UBAH TIPE ELEMEN --- -->
+        <select :value="node.content_type" @change="$root.changeElementType(id, parseInt($event.target.value))" style="background: rgba(255,255,255,0.7); border: 1px solid rgba(0,0,0,0.2); border-radius: 4px; font-size: 10px; font-weight: 800; cursor: pointer; padding: 2px 4px; margin-right: 6px; color: #0b0e14; outline: none; text-transform: uppercase;">
+          <option v-for="(label, val) in $root.CT_LABELS" :key="val" :value="val">{{ label }}</option>
+        </select>
+        <!-- ----------------------------------------- -->
+        
         <button @click.stop="$root.selectParent(id)" title="Pilih Wadah (Parent)">📦</button>
         <button @click.stop="$root.moveSibling(id,-1)" title="Pindah Atas / Kiri">⬆️</button>
         <button @click.stop="$root.moveSibling(id,1)" title="Pindah Bawah / Kanan">⬇️</button>
@@ -1225,6 +1229,27 @@ const app = createApp({
   },
 
   methods: {
+    // --- TAMBAHAN FUNGSI UBAH TIPE ELEMEN LANGSUNG ---
+    changeElementType(id, newType) {
+      const node = this.elements[id];
+      if (!node) return;
+      
+      node.content_type = newType;
+      
+      // Jika diubah menjadi tabel tapi belum punya struktur tabel, buatkan strukturnya
+      if (newType === 4 && (!node.table_data || !node.table_data.columns || node.table_data.columns.length === 0)) {
+        node.table_data = { data_source: 'document_data.items', columns: [this.createColumn()] };
+      }
+      // Jika diubah menjadi wadah, pastikan punya tempat untuk menampung anak elemen
+      if (newType === 0 && !node.item_list) {
+        node.item_list = [];
+      }
+      
+      this.pushHistory();
+      this.saveLocal();
+    },
+    // -------------------------------------------------
+
     getCss(id, key) {
       const attr = this.elements[id].css_attribute.find(a => a.k === key);
       return attr ? attr.v : '';
