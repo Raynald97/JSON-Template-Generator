@@ -1844,6 +1844,7 @@
             },
             template: `
     <div class="el-node"
+      :data-element-id="id"
       :class="{
         'el-selected': isSelected,
         'drop-before': $root.elementDropTargetId === id && $root.elementDropPosition === 'before',
@@ -2206,32 +2207,107 @@
                     }
                     return null;
                 },
-                getParentDirectionForElement(id) {
+                getElementDom(id) {
+                    return document.querySelector(`.page .el-node[data-element-id="${Number(id)}"]`);
+                },
+                getVisualFlexDirection(el, fallback = 'column') {
+                    if (!el) return fallback;
+                    const style = window.getComputedStyle(el);
+                    if (style.display === 'flex' || style.display === 'inline-flex') {
+                        return String(style.flexDirection || '').startsWith('row') ? 'row' : 'column';
+                    }
+                    return fallback;
+                },
+                getParentDirectionForElement(id, elementEl = null) {
                     const info = this.findParentInfo(id);
-                    if (!info || info.list === this.rootChildren) return 'column';
-                    const parentId = this.getParentIdForList(info.list);
-                    const parent = parentId != null ? this.elements[parentId] : null;
-                    return parent && parent.layout_setting && parent.layout_setting.fxLayout === 'row' ? 'row' : 'column';
+                    let fallback = 'column';
+                    if (info && info.list !== this.rootChildren) {
+                        const parentId = this.getParentIdForList(info.list);
+                        const parent = parentId != null ? this.elements[parentId] : null;
+                        fallback = parent && parent.layout_setting && parent.layout_setting.fxLayout === 'row' ? 'row' : 'column';
+                    }
+
+                    const ownEl = elementEl || this.getElementDom(id);
+                    let parentEl = ownEl ? ownEl.parentElement : null;
+                    while (parentEl && !parentEl.classList.contains('page')) {
+                        const style = window.getComputedStyle(parentEl);
+                        if (style.display === 'flex' || style.display === 'inline-flex') {
+                            return String(style.flexDirection || '').startsWith('row') ? 'row' : 'column';
+                        }
+                        if (parentEl.classList.contains('el-node')) break;
+                        parentEl = parentEl.parentElement;
+                    }
+                    return fallback;
+                },
+                resolveInsideContainerPlacement(containerId, e, containerEl) {
+                    const container = this.elements[containerId];
+                    const modelDirection = container?.layout_setting?.fxLayout === 'row' ? 'row' : 'column';
+                    const direction = this.getVisualFlexDirection(containerEl, modelDirection);
+                    const axis = direction === 'row' ? 'x' : 'y';
+                    const childIds = (container?.item_list || []).filter(id => this.elements[id]);
+
+                    const childEntries = childIds.map(childId => {
+                        const childEl = Array.from(containerEl.children || []).find(child =>
+                            child.classList && child.classList.contains('el-node') && Number(child.dataset.elementId) === Number(childId)
+                        ) || this.getElementDom(childId);
+                        return childEl ? {id: Number(childId), el: childEl, rect: childEl.getBoundingClientRect()} : null;
+                    }).filter(Boolean);
+
+                    if (!childEntries.length) {
+                        return {targetId: Number(containerId), position: 'inside', axis};
+                    }
+
+                    childEntries.sort((a, b) => axis === 'x' ? a.rect.left - b.rect.left : a.rect.top - b.rect.top);
+                    const pointer = axis === 'x' ? e.clientX : e.clientY;
+
+                    for (const child of childEntries) {
+                        const center = axis === 'x'
+                            ? child.rect.left + child.rect.width / 2
+                            : child.rect.top + child.rect.height / 2;
+                        if (pointer < center) {
+                            return {targetId: child.id, position: 'before', axis};
+                        }
+                    }
+
+                    const last = childEntries[childEntries.length - 1];
+                    return {targetId: last.id, position: 'after', axis};
                 },
                 getElementDropPlacement(targetId, e) {
                     const target = this.elements[targetId];
-                    const el = e.currentTarget;
+                    const el = e.currentTarget || this.getElementDom(targetId);
+                    if (!target || !el) return {targetId: Number(targetId), position: 'after', axis: 'y'};
+
                     const rect = el.getBoundingClientRect();
-                    const direction = this.getParentDirectionForElement(targetId);
-                    const axis = direction === 'row' ? 'x' : 'y';
-                    const ratio = axis === 'x'
+                    const parentDirection = this.getParentDirectionForElement(targetId, el);
+                    const parentAxis = parentDirection === 'row' ? 'x' : 'y';
+                    const parentRatio = parentAxis === 'x'
                         ? (e.clientX - rect.left) / Math.max(rect.width, 1)
                         : (e.clientY - rect.top) / Math.max(rect.height, 1);
 
-                    // Container: center area means drop inside it. Edge areas insert as sibling.
-                    if (target && target.content_type === CT.container && ratio >= 0.25 && ratio <= 0.75) {
-                        return {position: 'inside', axis};
+                    if (target.content_type === CT.container) {
+                        // Ujung kiri/kanan atau atas/bawah tetap berfungsi untuk menyisipkan
+                        // elemen sebagai sibling. Area tengah dipakai untuk menyisipkan ke
+                        // posisi anak yang paling dekat, termasuk di antara dua kolom.
+                        const parentInfo = this.findParentInfo(targetId);
+                        const edgeZone = 0.16;
+                        if (parentInfo && parentRatio <= edgeZone) {
+                            return {targetId: Number(targetId), position: 'before', axis: parentAxis};
+                        }
+                        if (parentInfo && parentRatio >= 1 - edgeZone) {
+                            return {targetId: Number(targetId), position: 'after', axis: parentAxis};
+                        }
+                        return this.resolveInsideContainerPlacement(targetId, e, el);
                     }
-                    return {position: ratio < 0.5 ? 'before' : 'after', axis};
+
+                    return {
+                        targetId: Number(targetId),
+                        position: parentRatio < 0.5 ? 'before' : 'after',
+                        axis: parentAxis,
+                    };
                 },
                 updateElementDropTarget(targetId, e) {
                     const placement = this.getElementDropPlacement(targetId, e);
-                    this.elementDropTargetId = targetId;
+                    this.elementDropTargetId = placement.targetId;
                     this.elementDropPosition = placement.position;
                     this.elementDropAxis = placement.axis;
                 },
@@ -2310,15 +2386,24 @@
                         this.clearElementDropTarget();
                         return;
                     }
-                    const placement = this.getElementDropPlacement(targetId, e);
+
+                    const placement = this.elementDropTargetId != null && this.elementDropPosition
+                        ? {
+                            targetId: Number(this.elementDropTargetId),
+                            position: this.elementDropPosition,
+                            axis: this.elementDropAxis,
+                        }
+                        : this.getElementDropPlacement(targetId, e);
+
+                    const resolvedTargetId = Number(placement.targetId ?? targetId);
                     let list, index, parentId;
 
-                    if (placement.position === 'inside' && this.elements[targetId].content_type === CT.container) {
-                        list = this.elements[targetId].item_list;
+                    if (placement.position === 'inside' && this.elements[resolvedTargetId]?.content_type === CT.container) {
+                        list = this.elements[resolvedTargetId].item_list;
                         index = list.length;
-                        parentId = targetId;
+                        parentId = resolvedTargetId;
                     } else {
-                        const info = this.findParentInfo(targetId);
+                        const info = this.findParentInfo(resolvedTargetId);
                         if (!info) {
                             this.clearElementDropTarget();
                             return;
