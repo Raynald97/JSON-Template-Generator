@@ -552,6 +552,52 @@
             z-index: 10;
         }
 
+
+        /* Drop position indicator: allows inserting new/moved elements between existing elements */
+        .el-node.drop-before::before,
+        .el-node.drop-after::after {
+            content: '';
+            position: absolute;
+            z-index: 120;
+            pointer-events: none;
+            background: #2f80ed;
+            box-shadow: 0 0 0 1px rgba(255,255,255,.9);
+        }
+
+        .el-node.drop-before.drop-axis-y::before {
+            left: 0;
+            right: 0;
+            top: -3px;
+            height: 4px;
+        }
+
+        .el-node.drop-after.drop-axis-y::after {
+            left: 0;
+            right: 0;
+            bottom: -3px;
+            height: 4px;
+        }
+
+        .el-node.drop-before.drop-axis-x::before {
+            top: 0;
+            bottom: 0;
+            left: -3px;
+            width: 4px;
+        }
+
+        .el-node.drop-after.drop-axis-x::after {
+            top: 0;
+            bottom: 0;
+            right: -3px;
+            width: 4px;
+        }
+
+        .el-node.drop-inside {
+            outline: 3px solid #2f80ed !important;
+            outline-offset: -3px;
+            background-image: linear-gradient(rgba(47,128,237,.08), rgba(47,128,237,.08));
+        }
+
         .resize-handle {
             position: absolute;
             z-index: 50;
@@ -1770,12 +1816,49 @@
                 onLabelInput(e) {this.node.content = e.target.innerText;},
                 onLabelBlur(e) {this.node.content = e.target.innerText; this.$root.pushHistory(); this.$root.saveLocal();},
                 onClick(e) {e.stopPropagation(); if (this.isDesign) this.$root.selectElement(this.id, e);},
-                onDragStart(e) {e.stopPropagation(); if (this.isDesign) e.dataTransfer.setData('text/plain', 'move:' + this.id);},
-                onDragOverContainer(e) {if (this.node.content_type === 0 && this.isDesign) {e.preventDefault(); e.stopPropagation();} },
-                onDropContainer(e) {if (this.node.content_type === 0 && this.isDesign) {e.preventDefault(); e.stopPropagation(); this.$root.handleDrop(e.dataTransfer.getData('text/plain'), this.id);} },
+                onDragStart(e) {
+                    e.stopPropagation();
+                    if (!this.isDesign) return;
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', 'move:' + this.id);
+                },
+                onDragOverElement(e) {
+                    if (!this.isDesign) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    e.dataTransfer.dropEffect = e.dataTransfer.getData('text/plain').startsWith('move:') ? 'move' : 'copy';
+                    this.$root.updateElementDropTarget(this.id, e);
+                },
+                onDragLeaveElement(e) {
+                    if (!this.isDesign) return;
+                    const next = e.relatedTarget;
+                    if (next && this.$el.contains(next)) return;
+                    this.$root.clearElementDropTarget(this.id);
+                },
+                onDropElement(e) {
+                    if (!this.isDesign) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    this.$root.handleElementDrop(e.dataTransfer.getData('text/plain'), this.id, e);
+                },
             },
             template: `
-    <div class="el-node" :class="{'el-selected': isSelected}" :style="[cssStyle, layoutStyle]" :draggable="isDesign" @click="onClick" @dragstart="onDragStart" @dragover="onDragOverContainer" @drop="onDropContainer">
+    <div class="el-node"
+      :class="{
+        'el-selected': isSelected,
+        'drop-before': $root.elementDropTargetId === id && $root.elementDropPosition === 'before',
+        'drop-after': $root.elementDropTargetId === id && $root.elementDropPosition === 'after',
+        'drop-inside': $root.elementDropTargetId === id && $root.elementDropPosition === 'inside',
+        'drop-axis-x': $root.elementDropTargetId === id && $root.elementDropAxis === 'x',
+        'drop-axis-y': $root.elementDropTargetId === id && $root.elementDropAxis === 'y'
+      }"
+      :style="[cssStyle, layoutStyle]"
+      :draggable="isDesign"
+      @click="onClick"
+      @dragstart="onDragStart"
+      @dragover="onDragOverElement"
+      @dragleave="onDragLeaveElement"
+      @drop="onDropElement">
       <div class="canvas-toolbar" v-if="isSelected && isDesign">
         <select :value="node.content_type" @change="$root.changeElementType(id, parseInt($event.target.value))" style="background: rgba(255,255,255,0.7); border: 1px solid rgba(0,0,0,0.2); border-radius: 4px; font-size: 10px; font-weight: 800; cursor: pointer; padding: 2px 4px; margin-right: 6px; color: #0b0e14; outline: none; text-transform: uppercase;">
           <option v-for="(label, val) in $root.CT_LABELS" :key="val" :value="val">{{ label }}</option>
@@ -1872,6 +1955,7 @@
                     elements: {}, rootChildren: [], nextId: 1,
                     selectedId: null, selectedIds: [], activeBorderSide: 'border', rightTab: 'page', mode: 'design', zoom: 100,
                     draggedColumnIndex: null, dragOverColumnIndex: null, draggedTableId: null,
+                    elementDropTargetId: null, elementDropPosition: null, elementDropAxis: 'y',
                     history: [], historyIndex: -1, suppressHistory: false,
                 };
             },
@@ -2115,23 +2199,157 @@
                     }
                     const item = info.list.splice(info.index, 1)[0]; info.list.splice(newIdx, 0, item); this.pushHistory(); this.saveLocal();
                 },
+                getParentIdForList(list) {
+                    if (list === this.rootChildren) return null;
+                    for (const key in this.elements) {
+                        if (this.elements[key].item_list === list) return Number(key);
+                    }
+                    return null;
+                },
+                getParentDirectionForElement(id) {
+                    const info = this.findParentInfo(id);
+                    if (!info || info.list === this.rootChildren) return 'column';
+                    const parentId = this.getParentIdForList(info.list);
+                    const parent = parentId != null ? this.elements[parentId] : null;
+                    return parent && parent.layout_setting && parent.layout_setting.fxLayout === 'row' ? 'row' : 'column';
+                },
+                getElementDropPlacement(targetId, e) {
+                    const target = this.elements[targetId];
+                    const el = e.currentTarget;
+                    const rect = el.getBoundingClientRect();
+                    const direction = this.getParentDirectionForElement(targetId);
+                    const axis = direction === 'row' ? 'x' : 'y';
+                    const ratio = axis === 'x'
+                        ? (e.clientX - rect.left) / Math.max(rect.width, 1)
+                        : (e.clientY - rect.top) / Math.max(rect.height, 1);
+
+                    // Container: center area means drop inside it. Edge areas insert as sibling.
+                    if (target && target.content_type === CT.container && ratio >= 0.25 && ratio <= 0.75) {
+                        return {position: 'inside', axis};
+                    }
+                    return {position: ratio < 0.5 ? 'before' : 'after', axis};
+                },
+                updateElementDropTarget(targetId, e) {
+                    const placement = this.getElementDropPlacement(targetId, e);
+                    this.elementDropTargetId = targetId;
+                    this.elementDropPosition = placement.position;
+                    this.elementDropAxis = placement.axis;
+                },
+                clearElementDropTarget(targetId = null) {
+                    if (targetId != null && this.elementDropTargetId !== targetId) return;
+                    this.elementDropTargetId = null;
+                    this.elementDropPosition = null;
+                    this.elementDropAxis = 'y';
+                },
+                setCssValueOnNode(node, key, value) {
+                    if (!node || !Array.isArray(node.css_attribute)) return;
+                    let attr = node.css_attribute.find(a => a.k === key);
+                    if (!attr) node.css_attribute.push({k: key, v: value});
+                    else attr.v = value;
+                },
+                normalizeNewChildSize(parentId, newId) {
+                    const node = this.elements[newId];
+                    if (!node) return;
+                    if (parentId == null) {
+                        this.setCssValueOnNode(node, 'width', '100%');
+                        node.layout_setting.fxFlex = '';
+                        return;
+                    }
+                    const parent = this.elements[parentId];
+                    if (!parent) return;
+                    const isRow = parent.layout_setting && parent.layout_setting.fxLayout === 'row';
+                    if (!isRow) {
+                        this.setCssValueOnNode(node, 'width', '100%');
+                        node.layout_setting.fxFlex = '';
+                        return;
+                    }
+
+                    // Prevent a newly dropped 100%-wide label from pushing/covering existing row elements.
+                    const siblings = (parent.item_list || []).filter(id => this.elements[id]);
+                    const equal = siblings.length ? (100 / siblings.length).toFixed(4).replace(/0+$/, '').replace(/\.$/, '') + '%' : '100%';
+                    siblings.forEach(id => {
+                        const child = this.elements[id];
+                        if (!child) return;
+                        child.layout_setting = child.layout_setting || this.defaultLayout();
+                        child.layout_setting.fxFlex = equal;
+                        this.setCssValueOnNode(child, 'width', '');
+                        this.setCssValueOnNode(child, 'max-width', equal);
+                        this.setCssValueOnNode(child, 'min-width', '0');
+                    });
+                },
+                insertDropData(data, list, index, parentId) {
+                    if (!data || !list) return null;
+                    let insertedId = null;
+                    const safeIndex = Math.max(0, Math.min(index, list.length));
+
+                    if (data.startsWith('new:')) {
+                        const type = data.slice(4);
+                        const node = this.createElementByType(type);
+                        this.elements[node.element_id] = node;
+                        list.splice(safeIndex, 0, node.element_id);
+                        insertedId = node.element_id;
+                        this.normalizeNewChildSize(parentId, insertedId);
+                    } else if (data.startsWith('move:')) {
+                        const id = Number(data.slice(5));
+                        if (!this.elements[id]) return null;
+                        if (parentId != null && (id === parentId || this.getDescendants(id).has(parentId))) return null;
+
+                        const oldInfo = this.findParentInfo(id);
+                        let adjustedIndex = safeIndex;
+                        if (oldInfo) {
+                            if (oldInfo.list === list && oldInfo.index < safeIndex) adjustedIndex--;
+                            oldInfo.list.splice(oldInfo.index, 1);
+                        }
+                        list.splice(Math.max(0, Math.min(adjustedIndex, list.length)), 0, id);
+                        insertedId = id;
+                    }
+                    return insertedId;
+                },
+                handleElementDrop(data, targetId, e) {
+                    if (!data || !this.elements[targetId]) {
+                        this.clearElementDropTarget();
+                        return;
+                    }
+                    const placement = this.getElementDropPlacement(targetId, e);
+                    let list, index, parentId;
+
+                    if (placement.position === 'inside' && this.elements[targetId].content_type === CT.container) {
+                        list = this.elements[targetId].item_list;
+                        index = list.length;
+                        parentId = targetId;
+                    } else {
+                        const info = this.findParentInfo(targetId);
+                        if (!info) {
+                            this.clearElementDropTarget();
+                            return;
+                        }
+                        list = info.list;
+                        index = info.index + (placement.position === 'after' ? 1 : 0);
+                        parentId = this.getParentIdForList(list);
+                    }
+
+                    const insertedId = this.insertDropData(data, list, index, parentId);
+                    this.clearElementDropTarget();
+                    if (insertedId == null) return;
+                    this.selectElement(insertedId);
+                    this.pushHistory();
+                    this.saveLocal();
+                },
                 handleDrop(data, parentId) {
                     if (!data) return;
-                    if (data.startsWith('new:')) {
-                        const type = data.slice(4); const node = this.createElementByType(type); this.elements[node.element_id] = node;
-                        if (parentId == null) {if (!this.rootChildren.includes(node.element_id)) this.rootChildren.push(node.element_id);}
-                        else {if (!this.elements[parentId].item_list.includes(node.element_id)) this.elements[parentId].item_list.push(node.element_id);}
-                        this.selectElement(node.element_id);
-                    } else if (data.startsWith('move:')) {
-                        const id = Number(data.slice(5)); if (id === parentId) return;
-                        if (parentId != null && this.getDescendants(id).has(parentId)) return;
-                        this.removeFromParent(id);
-                        if (parentId == null) {if (!this.rootChildren.includes(id)) this.rootChildren.push(id);}
-                        else {if (!this.elements[parentId].item_list.includes(id)) this.elements[parentId].item_list.push(id);}
-                    }
-                    this.pushHistory(); this.saveLocal();
+                    const list = parentId == null ? this.rootChildren : (this.elements[parentId]?.item_list || null);
+                    if (!list) return;
+                    const insertedId = this.insertDropData(data, list, list.length, parentId);
+                    this.clearElementDropTarget();
+                    if (insertedId == null) return;
+                    this.selectElement(insertedId);
+                    this.pushHistory();
+                    this.saveLocal();
                 },
-                onPaletteDragStart(e, type) {e.dataTransfer.setData('text/plain', 'new:' + type);},
+                onPaletteDragStart(e, type) {
+                    e.dataTransfer.effectAllowed = 'copy';
+                    e.dataTransfer.setData('text/plain', 'new:' + type);
+                },
                 deleteRecursive(id) {
                     const n = this.elements[id]; if (!n) return;
                     (n.item_list || []).slice().forEach(cid => this.deleteRecursive(cid)); delete this.elements[id];
