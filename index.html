@@ -668,6 +668,26 @@
             overflow: hidden;
         }
 
+
+        .design-mode .el-table .table-col-draggable {
+            position: relative;
+            cursor: grab;
+            user-select: none;
+        }
+
+        .design-mode .el-table .table-col-draggable:active {
+            cursor: grabbing;
+        }
+
+        .design-mode .el-table .table-col-dragging {
+            opacity: .38;
+        }
+
+        .design-mode .el-table .table-col-drag-over {
+            box-shadow: inset 4px 0 0 var(--accent);
+            background-color: rgba(91, 141, 239, .12) !important;
+        }
+
         .barcode-render svg,
         .qr-render {
             display: inline-block;
@@ -1881,12 +1901,28 @@
           <table class="el-table">
             <thead v-if="node.table_data.columns.some(c=>Number(c.show_header)===1)">
               <tr>
-                <th v-for="(col,ci) in node.table_data.columns" :key="'h'+ci" :style="$root.styleFromCssAttr(col.header_css_attribute)">{{ col.title }}</th>
+                <th v-for="(col,ci) in node.table_data.columns" :key="'h'+ci"
+                    :style="$root.styleFromCssAttr(col.header_css_attribute)"
+                    :class="{'table-col-draggable': isDesign, 'table-col-dragging': $root.draggedTableId === Number(id) && $root.draggedColumnIndex === ci, 'table-col-drag-over': $root.draggedTableId === Number(id) && $root.dragOverColumnIndex === ci && $root.draggedColumnIndex !== ci}"
+                    :draggable="isDesign"
+                    @dragstart.stop="$root.startColumnDrag($event, id, ci)"
+                    @dragover.prevent.stop="$root.setColumnDragOver(ci)"
+                    @drop.prevent.stop="$root.dropColumn(id, ci)"
+                    @dragend.stop="$root.endColumnDrag()"
+                    title="Drag untuk memindahkan posisi kolom">{{ col.title }}</th>
               </tr>
             </thead>
             <tbody>
               <tr v-if="isDesign">
-                <td v-for="(col,ci) in node.table_data.columns" :key="'d'+ci" :style="$root.styleFromCssAttr(col.css_attribute)">
+                <td v-for="(col,ci) in node.table_data.columns" :key="'d'+ci"
+                    :style="$root.styleFromCssAttr(col.css_attribute)"
+                    :class="{'table-col-draggable': isDesign, 'table-col-dragging': $root.draggedTableId === Number(id) && $root.draggedColumnIndex === ci, 'table-col-drag-over': $root.draggedTableId === Number(id) && $root.dragOverColumnIndex === ci && $root.draggedColumnIndex !== ci}"
+                    :draggable="isDesign"
+                    @dragstart.stop="$root.startColumnDrag($event, id, ci)"
+                    @dragover.prevent.stop="$root.setColumnDragOver(ci)"
+                    @drop.prevent.stop="$root.dropColumn(id, ci)"
+                    @dragend.stop="$root.endColumnDrag()"
+                    title="Drag untuk memindahkan posisi kolom">
                   <span v-if="col.content_type === 11" style="display: block; width: 100%; font-family: monospace; text-align: center; color: var(--accent);">1, 2, 3...</span>
                   <span v-else-if="col.content_type === 0" style="display: block; width: 100%; font-family: monospace; background: rgba(0,0,0,0.05); padding: 4px; border: 1px dashed rgba(0,0,0,0.2); text-align: center; font-size: 10px;">[ CONTAINER ]</span>
                   <span v-else-if="col.content_type === 3" style="display: block; width: 100%; font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" :title="'LABEL(' + col.content + ')'">{{ col.content || 'Label Text' }}</span>
@@ -2506,10 +2542,38 @@
                     this.dragOverColumnIndex = null;
                     this.draggedTableId = null;
                 },
-                colWidth(col) {const a = (col.css_attribute || []).find(a => a.k === 'width'); return a ? a.v : '';},
+                colWidth(col) {
+                    const readWidth = (arr) => {
+                        if (!Array.isArray(arr)) return '';
+                        const attr = arr.find(a => String(a?.k ?? a?.key ?? '').trim().toLowerCase() === 'width');
+                        return attr ? (attr.v ?? attr.value ?? '') : '';
+                    };
+                    return readWidth(col.css_attribute)
+                        || readWidth(col.header_css_attribute)
+                        || col.column_width
+                        || col.width
+                        || '';
+                },
                 setColWidth(col, val) {
-                    let a = (col.css_attribute || []).find(a => a.k === 'width'); if (!a) {a = {k: 'width', v: ''}; col.css_attribute.push(a);} a.v = val;
-                    let ha = (col.header_css_attribute || []).find(a => a.k === 'width'); if (!ha) {ha = {k: 'width', v: ''}; col.header_css_attribute.push(ha);} ha.v = val;
+                    let normalized = String(val ?? '').trim();
+                    if (normalized && /^-?\d+(?:\.\d+)?$/.test(normalized)) normalized += '%';
+                    if (!Array.isArray(col.css_attribute)) col.css_attribute = [];
+                    if (!Array.isArray(col.header_css_attribute)) col.header_css_attribute = [];
+                    const writeWidth = (arr) => {
+                        let attr = arr.find(a => String(a?.k ?? a?.key ?? '').trim().toLowerCase() === 'width');
+                        if (!attr) {
+                            attr = {k: 'width', v: ''};
+                            arr.push(attr);
+                        }
+                        attr.k = 'width';
+                        attr.v = normalized;
+                        if ('value' in attr) delete attr.value;
+                        if ('key' in attr) delete attr.key;
+                    };
+                    writeWidth(col.css_attribute);
+                    writeWidth(col.header_css_attribute);
+                    col.width = normalized;
+                    col.column_width = normalized;
                 },
                 formatPayload() {try {this.payloadStr = JSON.stringify(JSON.parse(this.payloadStr), null, 2); this.pushHistory(); this.saveLocal();} catch (e) {alert('Cannot format: ' + e.message);} },
 
@@ -2570,6 +2634,93 @@
 
                         if ([0, 2, 3, 11].includes(numericType)) return numericType;
                         return content ? 2 : 0;
+                    };
+
+
+                    const normalizeColumnWidthValue = (value) => {
+                        if (value === null || value === undefined) return '';
+                        const text = String(value).trim();
+                        if (!text || text.toLowerCase() === 'auto') return '';
+                        return /^-?\d+(?:\.\d+)?$/.test(text) ? text + '%' : text;
+                    };
+
+                    const normalizeCssAttributes = (rawValue) => {
+                        let list = rawValue;
+                        if (typeof list === 'string' && list.trim()) {
+                            try {list = JSON.parse(list);} catch (_) {list = [];}
+                        }
+                        if (list && !Array.isArray(list) && typeof list === 'object') {
+                            list = Object.entries(list).map(([k, v]) => ({k, v}));
+                        }
+                        if (!Array.isArray(list)) list = [];
+                        return list.map(item => {
+                            if (!item || typeof item !== 'object') return null;
+                            const key = String(item.k ?? item.key ?? item.name ?? '').trim().toLowerCase();
+                            if (!key) return null;
+                            let value = item.v ?? item.value ?? '';
+                            if (key === 'width') value = normalizeColumnWidthValue(value);
+                            return {k: key, v: value === null || value === undefined ? '' : String(value)};
+                        }).filter(Boolean);
+                    };
+
+                    const readCssValue = (list, key) => {
+                        const attr = (list || []).find(item => String(item?.k ?? '').toLowerCase() === key);
+                        return attr ? String(attr.v ?? '') : '';
+                    };
+
+                    const writeCssValue = (list, key, value) => {
+                        let attr = (list || []).find(item => String(item?.k ?? '').toLowerCase() === key);
+                        if (!attr) {
+                            attr = {k: key, v: value};
+                            list.push(attr);
+                        } else {
+                            attr.k = key;
+                            attr.v = value;
+                        }
+                    };
+
+                    const normalizeTableColumn = (col, index) => {
+                        col = col && typeof col === 'object' ? col : {};
+                        const headerCss = normalizeCssAttributes(
+                            col.header_css_attribute
+                            ?? col.column_header_css_attribute
+                            ?? col.column_header_css
+                            ?? col.header_css
+                            ?? []
+                        );
+                        const cellCss = normalizeCssAttributes(
+                            col.css_attribute
+                            ?? col.column_css_attribute
+                            ?? col.column_content_css_attribute
+                            ?? col.content_css_attribute
+                            ?? col.cell_css_attribute
+                            ?? []
+                        );
+                        const importedWidth = normalizeColumnWidthValue(
+                            readCssValue(cellCss, 'width')
+                            || readCssValue(headerCss, 'width')
+                            || col.column_width
+                            || col.width
+                            || col.header_width
+                            || ''
+                        );
+                        if (importedWidth) {
+                            writeCssValue(headerCss, 'width', importedWidth);
+                            writeCssValue(cellCss, 'width', importedWidth);
+                        }
+                        return {
+                            ...col,
+                            name: col.name || col.column_name || `Column-${index + 1}`,
+                            title: col.title ?? col.header_title ?? '',
+                            content: col.content ?? col.cell_content ?? '',
+                            content_type: normalizeTableColumnContentType(col),
+                            show_header: Number(col.show_header ?? col.showHeader ?? 1),
+                            header_css_attribute: headerCss,
+                            css_attribute: cellCss,
+                            width: importedWidth,
+                            column_width: importedWidth,
+                            format: col.format || '',
+                        };
                     };
 
                     // Kumpulkan definisi elemen dari format flat maupun nested legacy.
@@ -2634,17 +2785,7 @@
                         const normalizedTableData = {
                             data_source: rawTableData.data_source || '',
                             columns: Array.isArray(rawTableData.columns)
-                                ? rawTableData.columns.map((col, index) => ({
-                                    ...col,
-                                    name: col.name || `Column-${index + 1}`,
-                                    title: col.title || '',
-                                    content: col.content ?? '',
-                                    content_type: normalizeTableColumnContentType(col),
-                                    show_header: Number(col.show_header ?? 1),
-                                    header_css_attribute: Array.isArray(col.header_css_attribute) ? col.header_css_attribute : [],
-                                    css_attribute: Array.isArray(col.css_attribute) ? col.css_attribute : [],
-                                    format: col.format || '',
-                                }))
+                                ? rawTableData.columns.map(normalizeTableColumn)
                                 : [],
                         };
 
