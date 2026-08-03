@@ -1089,8 +1089,7 @@
                                     elemen lain ke dalamnya.</div>
                             </div>
                             <div class="field" v-else>
-                                <label>{{ elements[selectedId].content_type===5 ? 'Image URL expression' : 'Binding
-                                    expression' }}</label>
+                                <label>{{ elements[selectedId].content_type === 5 ? 'Image URL expression' : 'Binding expression' }}</label>
                                 <input type="text" v-model="elements[selectedId].content"
                                     @change="pushHistory(); saveLocal();" placeholder="document_data.field">
                                 <div class="hint">Evaluated against the payload in Preview mode.</div>
