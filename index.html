@@ -532,8 +532,13 @@
         /* element node visuals */
         .el-node {
             position: relative;
-            min-width: 4px;
+            min-width: 0;
             min-height: 4px;
+            max-width: 100%;
+        }
+
+        .el-node > .el-node {
+            min-width: 0;
         }
 
         .design-mode .el-node {
@@ -838,6 +843,46 @@
             border-left: 3px solid var(--accent);
         }
 
+        .col-card.col-drag-over {
+            border-top: 3px solid var(--accent);
+            transform: translateY(2px);
+        }
+
+        .col-card.col-dragging {
+            opacity: .45;
+        }
+
+        .col-drag-handle {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            height: 24px;
+            margin-right: 7px;
+            border: 1px solid var(--border-panel);
+            border-radius: 4px;
+            color: var(--text-faint);
+            cursor: grab;
+            user-select: none;
+            flex-shrink: 0;
+        }
+
+        .col-drag-handle:hover {
+            color: var(--accent);
+            border-color: var(--accent);
+            background: var(--accent-soft);
+        }
+
+        .col-drag-handle:active {
+            cursor: grabbing;
+        }
+
+        .col-card-head-left {
+            display: flex;
+            align-items: center;
+            min-width: 0;
+        }
+
         .col-card-head {
             display: flex;
             justify-content: space-between;
@@ -983,6 +1028,11 @@
                             <path d="M12 21V9M7 14l5-5 5 5M4 3h16" />
                         </svg> Export
                     </button>
+                    <button class="btn primary" @click="testPrint" title="Test Print Real">
+                        <svg class="i" viewBox="0 0 24 24">
+                            <path d="M6 9V3h12v6M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M6 14h12v7H6z" />
+                        </svg> Test Print
+                    </button>
                     <button class="btn danger" @click="clearCanvas" title="Clear Canvas">
                         <svg class="i" viewBox="0 0 24 24">
                             <path d="M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14" />
@@ -1114,9 +1164,18 @@
                         <div class="psection" v-if="elements[selectedId].content_type===4">
                             <div class="eyebrow">Table Columns Manager</div>
                             <div class="col-card" v-for="(col,ci) in elements[selectedId].table_data.columns"
-                                :key="col.name+ci">
+                                :key="col.name+ci"
+                                :class="{'col-drag-over': dragOverColumnIndex === ci && draggedColumnIndex !== ci, 'col-dragging': draggedColumnIndex === ci}"
+                                @dragover.prevent="setColumnDragOver(ci)"
+                                @drop.prevent="dropColumn(selectedId, ci)">
                                 <div class="col-card-head">
-                                    <span class="name">Column {{ ci + 1 }}</span>
+                                    <div class="col-card-head-left">
+                                        <span class="col-drag-handle" draggable="true"
+                                            @dragstart.stop="startColumnDrag($event, selectedId, ci)"
+                                            @dragend="endColumnDrag"
+                                            title="Drag untuk memindahkan posisi kolom">⋮⋮</span>
+                                        <span class="name">Column {{ ci + 1 }}</span>
+                                    </div>
                                     <button class="kv-mini-btn" @click="removeColumn(selectedId,ci)">&times;</button>
                                 </div>
                                 <div class="field"><label>Header title</label>
@@ -1143,9 +1202,9 @@
                                     </div>
                                     <div class="field"><label>Cell Content Type</label>
                                         <select v-model.number="col.content_type" @change="pushHistory(); saveLocal();">
-                                            <option :value="7">Variable (Data Tabel)</option>
+                                            <option :value="2">Variable (Data Tabel)</option>
                                             <option :value="3">Label</option>
-                                            <option :value="2">Row Number</option>
+                                            <option :value="11">Row Number</option>
                                             <option :value="0">CONTAINER</option>
                                         </select>
                                     </div>
@@ -1544,13 +1603,88 @@
             };
         }
 
+
+        // Lightweight Moment.js compatibility for local Preview/Test Print.
+        // The Prieds renderer supports expressions such as:
+        // moment(document_data.expired_date).format('DD MMM YYYY')
+        const momentCompat = (value) => {
+            const parseDateValue = (input) => {
+                if (input instanceof Date) return new Date(input.getTime());
+                if (typeof input === 'number') return new Date(input);
+
+                const raw = String(input ?? '').trim();
+                if (!raw) return new Date(NaN);
+
+                // Support DD/MM/YYYY and DD-MM-YYYY in addition to ISO dates.
+                const dmy = raw.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})(?:[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?$/);
+                if (dmy) {
+                    return new Date(
+                        Number(dmy[3]),
+                        Number(dmy[2]) - 1,
+                        Number(dmy[1]),
+                        Number(dmy[4] || 0),
+                        Number(dmy[5] || 0),
+                        Number(dmy[6] || 0)
+                    );
+                }
+
+                return new Date(raw);
+            };
+
+            const date = parseDateValue(value);
+            const pad = n => String(n).padStart(2, '0');
+            const monthShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            const monthLong = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+            return {
+                isValid: () => !Number.isNaN(date.getTime()),
+                toDate: () => new Date(date.getTime()),
+                valueOf: () => date.getTime(),
+                format: (formatString = 'YYYY-MM-DDTHH:mm:ss') => {
+                    if (Number.isNaN(date.getTime())) return 'Invalid date';
+                    const tokens = {
+                        YYYY: String(date.getFullYear()),
+                        MMMM: monthLong[date.getMonth()],
+                        MMM: monthShort[date.getMonth()],
+                        MM: pad(date.getMonth() + 1),
+                        M: String(date.getMonth() + 1),
+                        DD: pad(date.getDate()),
+                        D: String(date.getDate()),
+                        HH: pad(date.getHours()),
+                        H: String(date.getHours()),
+                        mm: pad(date.getMinutes()),
+                        m: String(date.getMinutes()),
+                        ss: pad(date.getSeconds()),
+                        s: String(date.getSeconds()),
+                    };
+                    return String(formatString).replace(/YYYY|MMMM|MMM|MM|DD|HH|mm|ss|M|D|H|m|s/g, token => tokens[token]);
+                }
+            };
+        };
+
         const ElementNode = {
             name: 'element-node', props: ['id'],
             computed: {
                 node() {return this.$root.elements[this.id];},
                 isSelected() {return this.$root.selectedIds.includes(this.id);},
                 isDesign() {return this.$root.mode === 'design';},
-                cssStyle() {return this.$root.styleFromCssAttr(this.node.css_attribute);},
+                hasChildren() {return Array.isArray(this.node?.item_list) && this.node.item_list.length > 0;},
+                hasOwnContent() {return String(this.node?.content ?? '').trim().length > 0;},
+                shouldRenderOwnContent() {return !this.hasChildren || this.hasOwnContent;},
+                cssStyle() {
+                    const style = this.$root.styleFromCssAttr(this.node.css_attribute);
+                    // Legacy Prieds containers frequently use a fixed height. In the editor,
+                    // treat that value as a minimum so nested rows cannot overlap siblings.
+                    if (this.hasChildren && style.height && style.height !== 'auto') {
+                        if (!style.minHeight) style.minHeight = style.height;
+                        delete style.height;
+                    }
+                    if (this.hasChildren) {
+                        style.minWidth = '0';
+                        if (!style.maxWidth) style.maxWidth = '100%';
+                    }
+                    return style;
+                },
                 layoutStyle() {return this.$root.styleFromLayout(this.node.layout_setting);},
                 previewValue() {
                     if (this.$root.mode !== 'preview') return null;
@@ -1659,27 +1793,32 @@
       <div class="resize-handle corner" v-if="isSelected && isDesign" @mousedown.stop.prevent="startResize($event, 'xy')"></div>
 
       <template v-if="node.content_type===4">
-        <table class="el-table">
-          <thead v-if="node.table_data.columns.some(c=>Number(c.show_header)===1)">
-            <tr>
-              <th v-for="(col,ci) in node.table_data.columns" :key="'h'+ci" :style="$root.styleFromCssAttr(col.header_css_attribute)">{{ col.title }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-if="isDesign">
-              <td v-for="(col,ci) in node.table_data.columns" :key="'d'+ci" :style="$root.styleFromCssAttr(col.css_attribute)">
-                <span v-if="col.content_type === 11" style="display: block; width: 100%; font-family: monospace; text-align: center; color: var(--accent);">1, 2, 3...</span>
-                <span v-else-if="col.content_type === 0" style="display: block; width: 100%; font-family: monospace; background: rgba(0,0,0,0.05); padding: 4px; border: 1px dashed rgba(0,0,0,0.2); text-align: center; font-size: 10px;">[ CONTAINER ]</span>
-                <span v-else-if="col.content_type === 3" style="display: block; width: 100%; font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" :title="'LABEL(' + col.content + ')'">{{ col.content || 'Label Text' }}</span>
-                <span v-else style="display: block; width: 100%; font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" :title="'VAR(' + col.content + ')'">VAR({{ col.content }})</span>
-              </td>
-            </tr>
-            <tr v-else v-for="(row,ridx) in previewTableRows" :key="ridx">
-              <td v-for="(col,ci) in node.table_data.columns" :key="'p'+ci" :style="$root.styleFromCssAttr(col.css_attribute)">{{ evalColumn(col,row,ridx) }}</td>
-            </tr>
-            <tr v-if="!isDesign && previewTableRows.length===0"><td :colspan="node.table_data.columns.length||1" style="text-align:center;color:#999;padding:8px;">No rows</td></tr>
-          </tbody>
-        </table>
+        <div style="display:block; width:100%; min-width:0;">
+          <table class="el-table">
+            <thead v-if="node.table_data.columns.some(c=>Number(c.show_header)===1)">
+              <tr>
+                <th v-for="(col,ci) in node.table_data.columns" :key="'h'+ci" :style="$root.styleFromCssAttr(col.header_css_attribute)">{{ col.title }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-if="isDesign">
+                <td v-for="(col,ci) in node.table_data.columns" :key="'d'+ci" :style="$root.styleFromCssAttr(col.css_attribute)">
+                  <span v-if="col.content_type === 11" style="display: block; width: 100%; font-family: monospace; text-align: center; color: var(--accent);">1, 2, 3...</span>
+                  <span v-else-if="col.content_type === 0" style="display: block; width: 100%; font-family: monospace; background: rgba(0,0,0,0.05); padding: 4px; border: 1px dashed rgba(0,0,0,0.2); text-align: center; font-size: 10px;">[ CONTAINER ]</span>
+                  <span v-else-if="col.content_type === 3" style="display: block; width: 100%; font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" :title="'LABEL(' + col.content + ')'">{{ col.content || 'Label Text' }}</span>
+                  <span v-else style="display: block; width: 100%; font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" :title="'VAR(' + col.content + ')'">VAR({{ col.content }})</span>
+                </td>
+              </tr>
+              <tr v-else v-for="(row,ridx) in previewTableRows" :key="ridx">
+                <td v-for="(col,ci) in node.table_data.columns" :key="'p'+ci" :style="$root.styleFromCssAttr(col.css_attribute)">{{ evalColumn(col,row,ridx) }}</td>
+              </tr>
+              <tr v-if="!isDesign && previewTableRows.length===0"><td :colspan="node.table_data.columns.length||1" style="text-align:center;color:#999;padding:8px;">No rows</td></tr>
+            </tbody>
+          </table>
+          <div v-if="node.item_list && node.item_list.length" style="display:block; width:100%; min-width:0;">
+            <element-node v-for="cid in node.item_list" :key="cid" :id="cid"></element-node>
+          </div>
+        </div>
       </template>
 
       <template v-else-if="node.content_type===5">
@@ -1698,11 +1837,11 @@
       </template>
 
       <template v-else>
-        <span v-if="[2,7,8].includes(node.content_type) && isDesign" contenteditable="true" @blur="onLabelBlur" style="display:block; width:100%; font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; outline: 1px dashed rgba(0,0,0,0.1); min-height: 20px; cursor: text; background: rgba(91,141,239,.1); padding: 2px;" title="Ketik Data Otomatis, cth: document_data.field" v-text="node.content"></span>
-        <span v-else-if="[2,7,8].includes(node.content_type) && !isDesign" style="display:block; width:100%; white-space:pre-wrap; word-break: break-word;">{{ previewValue }}</span>
+        <span v-if="[2,7,8].includes(node.content_type) && isDesign && shouldRenderOwnContent" contenteditable="true" @blur="onLabelBlur" style="display:block; width:100%; font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; outline: 1px dashed rgba(0,0,0,0.1); min-height: 20px; cursor: text; background: rgba(91,141,239,.1); padding: 2px;" title="Ketik Data Otomatis, cth: document_data.field" v-text="node.content"></span>
+        <span v-else-if="[2,7,8].includes(node.content_type) && !isDesign && shouldRenderOwnContent" style="display:block; width:100%; white-space:pre-wrap; word-break: break-word;">{{ previewValue }}</span>
         
-        <span v-else-if="node.content_type === 3 && isDesign" contenteditable="true" @blur="onLabelBlur" style="display:block; width:100%; white-space:pre-wrap; word-break: break-word; outline: 1px dashed rgba(0,0,0,0.1); min-height: 20px; cursor: text;" v-text="node.content"></span>
-        <span v-else-if="node.content_type !== 0 && node.content" style="display:block; width:100%; white-space:pre-wrap; word-break: break-word;">{{ node.content }}</span>
+        <span v-else-if="node.content_type === 3 && isDesign && shouldRenderOwnContent" contenteditable="true" @blur="onLabelBlur" style="display:block; width:100%; white-space:pre-wrap; word-break: break-word; outline: 1px dashed rgba(0,0,0,0.1); min-height: 20px; cursor: text;" v-text="node.content"></span>
+        <span v-else-if="node.content_type !== 0 && node.content && shouldRenderOwnContent" style="display:block; width:100%; white-space:pre-wrap; word-break: break-word;">{{ node.content }}</span>
 
         <element-node v-for="cid in node.item_list" :key="cid" :id="cid"></element-node>
         <div class="el-empty-drop" v-if="isDesign && node.content_type===0 && (!node.item_list || node.item_list.length===0)">+ Tarik elemen ke dalam kotak ini</div>
@@ -1732,6 +1871,7 @@
                     pageAttrs: {width: '21cm', height: '', background: 'white', 'background-size': '', 'background-repeat': '', 'background-attachment': '', 'padding-left': '10px', 'padding-right': '10px', 'font-family': ''},
                     elements: {}, rootChildren: [], nextId: 1,
                     selectedId: null, selectedIds: [], activeBorderSide: 'border', rightTab: 'page', mode: 'design', zoom: 100,
+                    draggedColumnIndex: null, dragOverColumnIndex: null, draggedTableId: null,
                     history: [], historyIndex: -1, suppressHistory: false,
                 };
             },
@@ -1873,11 +2013,18 @@
                 flexBasisFrom(fxFlex) {
                     if (!fxFlex || fxFlex === 'none') return {}; let basis = String(fxFlex).trim(); if (basis === '') return {};
                     if (!basis.includes('%') && !basis.includes('px') && !basis.includes('vw') && !isNaN(parseFloat(basis))) basis += '%';
-                    return {flex: '0 0 ' + basis, maxWidth: basis, boxSizing: 'border-box'};
+                    return {flex: '0 1 ' + basis, width: basis, maxWidth: basis, minWidth: '0', boxSizing: 'border-box'};
                 },
                 safeEval(expr, dataRoot) {
                     if (!expr || !String(expr).trim()) return '';
-                    try {const fn = new Function('document_data', 'return (' + expr + ');'); const result = fn(dataRoot || {}); return result == null ? '' : result;} catch (e) {return '⚠ ' + expr;}
+                    try {
+                        const fn = new Function('document_data', 'moment', 'return (' + expr + ');');
+                        const result = fn(dataRoot || {}, momentCompat);
+                        return result == null ? '' : result;
+                    } catch (e) {
+                        console.warn('Preview expression error:', expr, e);
+                        return '⚠ ' + expr;
+                    }
                 },
                 evalContent(expr, contentType) {
                     const val = this.safeEval(expr, this.payloadObject);
@@ -2022,6 +2169,40 @@
                 },
                 addColumn(id) {this.elements[id].table_data.columns.push(this.createColumn()); this.pushHistory(); this.saveLocal();},
                 removeColumn(id, idx) {this.elements[id].table_data.columns.splice(idx, 1); this.pushHistory(); this.saveLocal();},
+                startColumnDrag(event, tableId, index) {
+                    this.draggedTableId = Number(tableId);
+                    this.draggedColumnIndex = index;
+                    this.dragOverColumnIndex = index;
+                    event.dataTransfer.effectAllowed = 'move';
+                    event.dataTransfer.setData('text/plain', `table-column:${tableId}:${index}`);
+                },
+                setColumnDragOver(index) {
+                    if (this.draggedColumnIndex === null) return;
+                    this.dragOverColumnIndex = index;
+                },
+                dropColumn(tableId, targetIndex) {
+                    const sourceIndex = this.draggedColumnIndex;
+                    const sourceTableId = this.draggedTableId;
+                    if (sourceIndex === null || sourceTableId !== Number(tableId)) {
+                        this.endColumnDrag();
+                        return;
+                    }
+                    const columns = this.elements[tableId]?.table_data?.columns;
+                    if (!Array.isArray(columns) || sourceIndex === targetIndex) {
+                        this.endColumnDrag();
+                        return;
+                    }
+                    const [movedColumn] = columns.splice(sourceIndex, 1);
+                    columns.splice(targetIndex, 0, movedColumn);
+                    this.endColumnDrag();
+                    this.pushHistory();
+                    this.saveLocal();
+                },
+                endColumnDrag() {
+                    this.draggedColumnIndex = null;
+                    this.dragOverColumnIndex = null;
+                    this.draggedTableId = null;
+                },
                 colWidth(col) {const a = (col.css_attribute || []).find(a => a.k === 'width'); return a ? a.v : '';},
                 setColWidth(col, val) {
                     let a = (col.css_attribute || []).find(a => a.k === 'width'); if (!a) {a = {k: 'width', v: ''}; col.css_attribute.push(a);} a.v = val;
@@ -2041,7 +2222,7 @@
                         const n = this.elements[numId]; if (!n) return; (n.item_list || []).forEach(pushNode);
                         list.push({
                             table_data: n.content_type === CT.table
-                                ? {data_source: n.table_data.data_source, columns: n.table_data.columns.map(c => ({header_css_attribute: cleanCss(c.header_css_attribute), css_attribute: cleanCss(c.css_attribute), show_header: Number(c.show_header), name: c.name, title: c.title, content_type: c.content_type, content: c.content, format: c.format || '', }))}
+                                ? {data_source: n.table_data.data_source, columns: n.table_data.columns.map(c => ({header_css_attribute: cleanCss(c.header_css_attribute), css_attribute: cleanCss(c.css_attribute), show_header: Number(c.show_header), name: c.name, title: c.title, content_type: Number(c.content_type), content: c.content, format: c.format || '', }))}
                                 : {data_source: '', columns: []},
                             page_break_setting: n.page_break_setting, css_attribute: cleanCss(n.css_attribute),
                             layout_setting: Object.keys(n.layout_setting || {}).reduce((acc, k) => {let val = n.layout_setting[k]; if (k === 'fxLayout' && val === 'none') val = 'row'; if (k === 'fxFlex' && (val === '' || val == null)) {return acc;} acc.push({k, v: val}); return acc;}, []),
@@ -2062,14 +2243,153 @@
                     this.payloadStr = obj.payload || '{}';
                     const pa = {}; (obj.page_css_attribute || []).forEach(({k, v}) => pa[k] = v);
                     this.pageAttrs = Object.assign({width: '21cm', height: '', background: 'white', 'background-size': '', 'background-repeat': '', 'background-attachment': '', 'padding-left': '', 'padding-right': '', 'font-family': '', }, pa);
+                    const normalizeTableColumnContentType = (col) => {
+                        const content = String(col?.content ?? '').trim();
+                        const rawType = col?.content_type;
+
+                        // Mendukung nilai nama dari JSON lama: "Variable", "Label", dll.
+                        if (typeof rawType === 'string' && rawType.trim() !== '' && Number.isNaN(Number(rawType))) {
+                            const typeName = rawType.trim().toLowerCase();
+                            if (typeName.includes('variable')) return 2;
+                            if (typeName.includes('label')) return 3;
+                            if (typeName.includes('row')) return 11;
+                            if (typeName.includes('container')) return content ? 2 : 0;
+                        }
+
+                        const numericType = Number(rawType);
+
+                        // Nilai 7 pernah digunakan oleh generator ini sebagai Variable.
+                        if (numericType === 7) return 2;
+
+                        // Beberapa JSON lama menyimpan 0/Container walaupun berisi expression.
+                        // Expression yang terisi harus dibaca sebagai Variable.
+                        if (numericType === 0 && content) return 2;
+
+                        if ([0, 2, 3, 11].includes(numericType)) return numericType;
+                        return content ? 2 : 0;
+                    };
+
+                    // Kumpulkan definisi elemen dari format flat maupun nested legacy.
+                    const rawElementList = Array.isArray(obj.element_list) ? obj.element_list : [];
+                    const rawDefinitions = new Map();
+                    const sourceOrder = [];
+
+                    const readElementId = (value) => {
+                        if (value === null || value === undefined) return null;
+                        if (typeof value === 'number' || typeof value === 'string') {
+                            const id = Number(value);
+                            return Number.isFinite(id) ? id : null;
+                        }
+                        if (typeof value === 'object') {
+                            const candidate = value.element_id ?? value.elementId ?? value.id ?? value.value;
+                            const id = Number(candidate);
+                            return Number.isFinite(id) ? id : null;
+                        }
+                        return null;
+                    };
+
+                    const readItemList = (value) => {
+                        if (Array.isArray(value)) return value;
+                        if (typeof value === 'string' && value.trim()) {
+                            try {
+                                const parsed = JSON.parse(value);
+                                return Array.isArray(parsed) ? parsed : [];
+                            } catch (_) {return [];}
+                        }
+                        return [];
+                    };
+
+                    const collectDefinition = (raw) => {
+                        if (!raw || typeof raw !== 'object') return;
+                        const id = readElementId(raw);
+                        if (id !== null) {
+                            if (!rawDefinitions.has(id)) sourceOrder.push(id);
+                            const existing = rawDefinitions.get(id) || {};
+                            // Definisi lengkap menggantikan reference object yang hanya berisi element_id.
+                            rawDefinitions.set(id, Object.keys(raw).length > Object.keys(existing).length ? raw : existing);
+                        }
+                        readItemList(raw.item_list).forEach(child => {
+                            if (child && typeof child === 'object' && Object.keys(child).length > 1) collectDefinition(child);
+                        });
+                    };
+                    rawElementList.forEach(collectDefinition);
+
                     const elements = {};
-                    (obj.element_list || []).forEach(e => {
+                    sourceOrder.forEach(id => {
+                        const e = rawDefinitions.get(id);
+                        if (!e) return;
                         let layoutObj = this.defaultLayout();
-                        if (Array.isArray(e.layout_setting)) {layoutObj = {}; e.layout_setting.forEach(({k, v}) => layoutObj[k] = v); if (layoutObj.fxFlex === undefined) layoutObj.fxFlex = '';}
-                        elements[Number(e.element_id)] = {element_id: Number(e.element_id), tag: e.tag || 'div', content_type: e.content_type, content: e.content || '', location: e.location !== undefined ? e.location : 1, css_attribute: e.css_attribute || this.defaultCssAttr(), layout_setting: layoutObj, page_break_setting: e.page_break_setting || this.defaultPageBreak(), table_data: e.table_data || {data_source: '', columns: []}, setting_list: e.setting_list || [], item_list: (e.item_list || []).map(x => Number(x.element_id)), };
+                        if (Array.isArray(e.layout_setting)) {
+                            layoutObj = {};
+                            e.layout_setting.forEach(({k, v}) => layoutObj[k] = v);
+                            if (layoutObj.fxFlex === undefined) layoutObj.fxFlex = '';
+                        } else if (e.layout_setting && typeof e.layout_setting === 'object') {
+                            layoutObj = Object.assign(this.defaultLayout(), e.layout_setting);
+                        }
+
+                        const rawTableData = e.table_data || {data_source: '', columns: []};
+                        const normalizedTableData = {
+                            data_source: rawTableData.data_source || '',
+                            columns: Array.isArray(rawTableData.columns)
+                                ? rawTableData.columns.map((col, index) => ({
+                                    ...col,
+                                    name: col.name || `Column-${index + 1}`,
+                                    title: col.title || '',
+                                    content: col.content ?? '',
+                                    content_type: normalizeTableColumnContentType(col),
+                                    show_header: Number(col.show_header ?? 1),
+                                    header_css_attribute: Array.isArray(col.header_css_attribute) ? col.header_css_attribute : [],
+                                    css_attribute: Array.isArray(col.css_attribute) ? col.css_attribute : [],
+                                    format: col.format || '',
+                                }))
+                                : [],
+                        };
+
+                        const childIds = readItemList(e.item_list)
+                            .map(readElementId)
+                            .filter(childId => childId !== null);
+
+                        elements[id] = {
+                            element_id: id,
+                            tag: e.tag || 'div',
+                            content_type: Number(e.content_type),
+                            content: e.content || '',
+                            location: e.location !== undefined ? e.location : 1,
+                            css_attribute: Array.isArray(e.css_attribute) ? e.css_attribute : this.defaultCssAttr(),
+                            layout_setting: layoutObj,
+                            page_break_setting: Array.isArray(e.page_break_setting) ? e.page_break_setting : this.defaultPageBreak(),
+                            table_data: normalizedTableData,
+                            setting_list: Array.isArray(e.setting_list) ? e.setting_list : [],
+                            item_list: [...new Set(childIds)],
+                        };
                     });
-                    const referenced = new Set(); Object.values(elements).forEach(n => n.item_list.forEach(cid => referenced.add(cid)));
-                    const topIds = (obj.element_list || []).map(e => Number(e.element_id)).filter(id => !referenced.has(id));
+
+                    // Hapus reference rusak, tetapi jangan hilangkan elemen valid setelah tabel pertama.
+                    Object.values(elements).forEach(node => {
+                        node.item_list = node.item_list.filter(childId => elements[childId] && childId !== node.element_id);
+                    });
+
+                    const referenced = new Set();
+                    Object.values(elements).forEach(node => node.item_list.forEach(childId => referenced.add(childId)));
+                    let topIds = sourceOrder.filter(id => elements[id] && !referenced.has(id));
+
+                    // Fallback untuk JSON legacy yang memakai location=1 sebagai elemen halaman utama.
+                    // Elemen orphan tetap ditampilkan, bukan dibuang setelah tabel pertama.
+                    const reachable = new Set();
+                    const markReachable = (id) => {
+                        if (reachable.has(id) || !elements[id]) return;
+                        reachable.add(id);
+                        elements[id].item_list.forEach(markReachable);
+                    };
+                    topIds.forEach(markReachable);
+                    sourceOrder.forEach(id => {
+                        if (elements[id] && !reachable.has(id)) {
+                            topIds.push(id);
+                            markReachable(id);
+                        }
+                    });
+
+                    topIds = [...new Set(topIds)];
                     this.elements = elements; this.rootChildren = topIds; this.selectedId = null;
                     let maxId = 0; Object.keys(elements).forEach(id => {if (Number(id) > maxId) maxId = Number(id);}); this.nextId = maxId + 1;
                     if (!opts.silent) {this.pushHistory(); this.saveLocal();}
@@ -2088,6 +2408,112 @@
                     const data = JSON.stringify(this.exportDoc(), null, 2); const blob = new Blob([data], {type: 'application/json'}); const url = URL.createObjectURL(blob);
                     const a = document.createElement('a'); a.href = url; a.download = (this.templateId || 'template').replace(/[^a-z0-9-_ ]/gi, '_') + '.json';
                     document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+                },
+                testPrint() {
+                    if (this.payloadError) {
+                        alert('Dummy Data JSON belum valid. Perbaiki JSON sebelum Test Print.');
+                        return;
+                    }
+
+                    const printWindow = window.open('', '_blank', 'width=1000,height=800');
+                    if (!printWindow) {
+                        alert('Popup diblokir browser. Izinkan popup untuk menjalankan Test Print.');
+                        return;
+                    }
+
+                    const previousMode = this.mode;
+                    const previousSelectedId = this.selectedId;
+                    const previousSelectedIds = [...this.selectedIds];
+                    this.mode = 'preview';
+                    this.selectedId = null;
+                    this.selectedIds = [];
+
+                    this.$nextTick(() => {
+                        requestAnimationFrame(() => {
+                            const sourcePage = document.querySelector('.page');
+                            if (!sourcePage) {
+                                printWindow.close();
+                                this.mode = previousMode;
+                                this.selectedId = previousSelectedId;
+                                this.selectedIds = previousSelectedIds;
+                                alert('Area print tidak ditemukan.');
+                                return;
+                            }
+
+                            const pageClone = sourcePage.cloneNode(true);
+                            pageClone.classList.remove('design-mode');
+                            pageClone.querySelectorAll('.canvas-toolbar, .resize-handle, .page-empty-hint').forEach(el => el.remove());
+
+                            // Canvas (contoh QR Code) harus diubah menjadi image agar hasil print sama dengan preview.
+                            const sourceCanvases = sourcePage.querySelectorAll('canvas');
+                            const clonedCanvases = pageClone.querySelectorAll('canvas');
+                            sourceCanvases.forEach((canvas, index) => {
+                                const clonedCanvas = clonedCanvases[index];
+                                if (!clonedCanvas) return;
+                                try {
+                                    const image = document.createElement('img');
+                                    image.src = canvas.toDataURL('image/png');
+                                    image.width = canvas.width;
+                                    image.height = canvas.height;
+                                    image.style.cssText = clonedCanvas.style.cssText;
+                                    clonedCanvas.replaceWith(image);
+                                } catch (error) {
+                                    console.warn('Canvas print conversion skipped:', error);
+                                }
+                            });
+
+                            const originalStyles = Array.from(document.querySelectorAll('head style'))
+                                .map(style => style.textContent)
+                                .join('\n');
+                            const pageWidth = this.pageAttrs.width || '21cm';
+                            const pageHeight = this.pageAttrs.height || '';
+                            const pageSizeRule = pageHeight ? `${pageWidth} ${pageHeight}` : 'auto';
+                            const safeTitle = String(this.templateId || 'Test Print').replace(/[<>]/g, '');
+
+                            printWindow.document.open();
+                            printWindow.document.write(`<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>${safeTitle}</title>
+<style>${originalStyles}</style>
+<style>
+    @page { size: ${pageSizeRule}; margin: 0; }
+    html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; height: auto !important; overflow: visible !important; }
+    body { display: block !important; color: #000; }
+    .page { box-shadow: none !important; margin: 0 auto !important; min-height: 0; position: relative; }
+    .el-node { outline: none !important; }
+    .canvas-toolbar, .resize-handle, .page-empty-hint { display: none !important; }
+    * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+</style>
+</head>
+<body>${pageClone.outerHTML}</body>
+</html>`);
+                            printWindow.document.close();
+
+                            const restoreEditorState = () => {
+                                this.mode = previousMode;
+                                this.selectedId = previousSelectedId;
+                                this.selectedIds = previousSelectedIds;
+                            };
+
+                            printWindow.onafterprint = () => {
+                                restoreEditorState();
+                                printWindow.close();
+                            };
+
+                            const launchPrint = () => {
+                                setTimeout(() => {
+                                    printWindow.focus();
+                                    printWindow.print();
+                                    restoreEditorState();
+                                }, 350);
+                            };
+
+                            if (printWindow.document.readyState === 'complete') launchPrint();
+                            else printWindow.onload = launchPrint;
+                        });
+                    });
                 },
 
                 // --- 5. HISTORY & SHORTCUTS ---
