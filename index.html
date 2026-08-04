@@ -738,6 +738,24 @@
             transform: translateY(-2px);
         }
 
+
+        .canvas-toolbar .drag-element-handle {
+            cursor: grab;
+            font-size: 16px;
+            line-height: 1;
+            font-weight: 900;
+            padding-left: 7px;
+            padding-right: 7px;
+        }
+
+        .canvas-toolbar .drag-element-handle:active {
+            cursor: grabbing;
+        }
+
+        body.element-dragging .el-node {
+            cursor: grabbing;
+        }
+
         /* ---------- RIGHT PROPERTIES ---------- */
         .props {
             width: 320px;
@@ -916,6 +934,95 @@
 
         .col-card.col-dragging {
             opacity: .45;
+        }
+
+        .table-width-summary {
+            background: #141620;
+            border: 1px solid var(--border-panel);
+            border-radius: 6px;
+            padding: 10px;
+            margin-bottom: 12px;
+        }
+
+        .table-width-summary.is-valid {
+            border-color: rgba(62, 207, 142, .55);
+        }
+
+        .table-width-summary.is-warning {
+            border-color: rgba(224, 162, 56, .75);
+        }
+
+        .table-width-summary.is-over {
+            border-color: rgba(224, 98, 92, .8);
+        }
+
+        .table-width-summary-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            font-size: 11px;
+            color: var(--text-lo);
+        }
+
+        .table-width-summary-row + .table-width-summary-row {
+            margin-top: 5px;
+        }
+
+        .table-width-summary-row strong {
+            color: var(--text-hi);
+            font-family: var(--mono);
+            font-size: 12px;
+        }
+
+        .table-width-progress {
+            height: 6px;
+            overflow: hidden;
+            border-radius: 999px;
+            background: var(--bg-panel-alt);
+            margin-top: 9px;
+        }
+
+        .table-width-progress > span {
+            display: block;
+            height: 100%;
+            background: var(--accent);
+            border-radius: inherit;
+            transition: width .16s ease;
+        }
+
+        .table-width-summary.is-valid .table-width-progress > span {
+            background: var(--good);
+        }
+
+        .table-width-summary.is-warning .table-width-progress > span {
+            background: var(--warn);
+        }
+
+        .table-width-summary.is-over .table-width-progress > span {
+            background: var(--danger);
+        }
+
+        .table-width-summary .hint {
+            margin-top: 8px;
+            line-height: 1.45;
+        }
+
+        .col-width-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 46px;
+            margin-left: 7px;
+            padding: 3px 7px;
+            border-radius: 999px;
+            background: var(--accent-soft);
+            color: var(--accent);
+            border: 1px solid rgba(91, 141, 239, .3);
+            font-family: var(--mono);
+            font-size: 10px;
+            font-weight: 700;
+            white-space: nowrap;
         }
 
         .col-drag-handle {
@@ -1229,6 +1336,23 @@
                         <!-- PENGATURAN KOLOM TABEL -->
                         <div class="psection" v-if="elements[selectedId].content_type===4">
                             <div class="eyebrow">Table Columns Manager</div>
+
+                            <div class="table-width-summary"
+                                :class="tableWidthStatusClass(selectedId)">
+                                <div class="table-width-summary-row">
+                                    <span>Total Width Semua Kolom</span>
+                                    <strong>{{ formatColumnWidth(getTableWidthTotal(selectedId)) }}%</strong>
+                                </div>
+                                <div class="table-width-summary-row">
+                                    <span>{{ getTableWidthRemaining(selectedId) >= 0 ? 'Sisa Width Tersedia' : 'Kelebihan Width' }}</span>
+                                    <strong>{{ formatColumnWidth(Math.abs(getTableWidthRemaining(selectedId))) }}%</strong>
+                                </div>
+                                <div class="table-width-progress">
+                                    <span :style="{width: Math.min(100, Math.max(0, getTableWidthTotal(selectedId))) + '%'}"></span>
+                                </div>
+                                <div class="hint">Saat kolom baru ditambahkan atau Width (%) diubah, kolom lain otomatis disesuaikan agar total tetap 100%.</div>
+                            </div>
+
                             <div class="col-card" v-for="(col,ci) in elements[selectedId].table_data.columns"
                                 :key="col.name+ci"
                                 :class="{'col-drag-over': dragOverColumnIndex === ci && draggedColumnIndex !== ci, 'col-dragging': draggedColumnIndex === ci}"
@@ -1241,6 +1365,7 @@
                                             @dragend="endColumnDrag"
                                             title="Drag untuk memindahkan posisi kolom">⋮⋮</span>
                                         <span class="name">Column {{ ci + 1 }}</span>
+                                        <span class="col-width-badge">{{ columnWidthLabel(col) }}</span>
                                     </div>
                                     <button class="kv-mini-btn" @click="removeColumn(selectedId,ci)">&times;</button>
                                 </div>
@@ -1261,7 +1386,8 @@
                                     <div class="field"><label>Width (%)</label>
                                         <div style="display:flex; gap:6px; align-items:center;">
                                             <input type="number" :value="parseFloat(colWidth(col)) || ''"
-                                                @input="setColWidth(col, $event.target.value ? $event.target.value + '%' : ''); pushHistory(); saveLocal();"
+                                                min="0" max="100" step="0.01"
+                                                @input="setColumnWidthAndBalance(selectedId, ci, $event.target.value)"
                                                 placeholder="Auto" style="width: 100%;">
                                             <span style="font-size:11px; color:var(--text-faint);">%</span>
                                         </div>
@@ -1839,21 +1965,26 @@
                 onDragStart(e) {
                     e.stopPropagation();
                     if (!this.isDesign) return;
-                    e.dataTransfer.effectAllowed = 'move';
-                    e.dataTransfer.setData('text/plain', 'move:' + this.id);
+                    this.$root.startElementDrag(e, this.id);
+                },
+                onDragEnd() {
+                    this.$root.endElementDrag();
                 },
                 onDragOverElement(e) {
                     if (!this.isDesign) return;
                     e.preventDefault();
                     e.stopPropagation();
-                    e.dataTransfer.dropEffect = e.dataTransfer.getData('text/plain').startsWith('move:') ? 'move' : 'copy';
+                    const data = e.dataTransfer.getData('text/plain');
+                    e.dataTransfer.dropEffect = data.startsWith('move:') ? 'move' : 'copy';
                     this.$root.updateElementDropTarget(this.id, e);
                 },
                 onDragLeaveElement(e) {
                     if (!this.isDesign) return;
                     const next = e.relatedTarget;
                     if (next && this.$el.contains(next)) return;
-                    this.$root.clearElementDropTarget(this.id);
+                    // Clear unconditionally. The visual placement may resolve to a child ID,
+                    // while dragleave belongs to its parent container.
+                    this.$root.clearElementDropTarget();
                 },
                 onDropElement(e) {
                     if (!this.isDesign) return;
@@ -1877,10 +2008,15 @@
       :draggable="isDesign"
       @click="onClick"
       @dragstart="onDragStart"
+      @dragend="onDragEnd"
       @dragover="onDragOverElement"
       @dragleave="onDragLeaveElement"
       @drop="onDropElement">
       <div class="canvas-toolbar" v-if="isSelected && isDesign">
+        <button class="drag-element-handle" draggable="true"
+          @dragstart.stop="$root.startElementDrag($event, id)"
+          @dragend.stop="$root.endElementDrag()"
+          title="Geser elemen ke posisi lain">⠿</button>
         <select :value="node.content_type" @change="$root.changeElementType(id, parseInt($event.target.value))" style="background: rgba(255,255,255,0.7); border: 1px solid rgba(0,0,0,0.2); border-radius: 4px; font-size: 10px; font-weight: 800; cursor: pointer; padding: 2px 4px; margin-right: 6px; color: #0b0e14; outline: none; text-transform: uppercase;">
           <option v-for="(label, val) in $root.CT_LABELS" :key="val" :value="val">{{ label }}</option>
         </select>
@@ -1993,6 +2129,7 @@
                     selectedId: null, selectedIds: [], activeBorderSide: 'border', rightTab: 'page', mode: 'design', zoom: 100,
                     draggedColumnIndex: null, dragOverColumnIndex: null, draggedTableId: null,
                     elementDropTargetId: null, elementDropPosition: null, elementDropAxis: 'y',
+                    draggedElementId: null,
                     history: [], historyIndex: -1, suppressHistory: false,
                 };
             },
@@ -2190,8 +2327,8 @@
                 defaultPageBreak() {return [{k: 'page-break-after', v: 'auto'}, {k: 'page-break-inside', v: 'avoid'}, {k: 'page-break-before', v: 'auto'}];},
                 createColumn() {
                     let hCss = this.defaultCssAttr(), cCss = this.defaultCssAttr();
-                    let wHeader = hCss.find(a => a.k === 'width'); if (wHeader) wHeader.v = '';
-                    let wCell = cCss.find(a => a.k === 'width'); if (wCell) wCell.v = '';
+                    let wHeader = hCss.find(a => a.k === 'width'); if (wHeader) wHeader.v = '100%';
+                    let wCell = cCss.find(a => a.k === 'width'); if (wCell) wCell.v = '100%';
                     let bHeader = hCss.find(a => a.k === 'border'); if (bHeader) bHeader.v = '1px solid black';
                     let bCell = cCss.find(a => a.k === 'border'); if (bCell) bCell.v = '1px solid black';
                     let taHeader = hCss.find(a => a.k === 'text-align'); if (taHeader) taHeader.v = 'center';
@@ -2308,13 +2445,51 @@
                     const last = childEntries[childEntries.length - 1];
                     return {targetId: last.id, position: 'after', axis};
                 },
+                startElementDrag(event, id) {
+                    const numericId = Number(id);
+                    if (!this.elements[numericId] || !event?.dataTransfer) return;
+                    this.draggedElementId = numericId;
+                    this.selectElement(numericId);
+                    event.dataTransfer.effectAllowed = 'move';
+                    event.dataTransfer.setData('text/plain', 'move:' + numericId);
+                    event.dataTransfer.setData('application/x-prieds-template-element', String(numericId));
+                    try {
+                        const el = this.getElementDom(numericId);
+                        if (el && event.dataTransfer.setDragImage) {
+                            const rect = el.getBoundingClientRect();
+                            event.dataTransfer.setDragImage(el, Math.min(24, rect.width / 2), Math.min(16, rect.height / 2));
+                        }
+                    } catch (err) { }
+                    document.body.classList.add('element-dragging');
+                    this.clearElementDropTarget();
+                },
+                endElementDrag() {
+                    this.draggedElementId = null;
+                    document.body.classList.remove('element-dragging');
+                    this.clearElementDropTarget();
+                },
                 getElementDropPlacement(targetId, e) {
+                    targetId = Number(targetId);
                     const target = this.elements[targetId];
                     const el = e.currentTarget || this.getElementDom(targetId);
-                    if (!target || !el) return {targetId: Number(targetId), position: 'after', axis: 'y'};
+                    if (!target || !el) return {targetId, position: 'after', axis: 'y'};
+
+                    // Dragging over the element itself must not create a stale/self target.
+                    // Resolve to the nearest sibling position in its current parent instead.
+                    if (this.draggedElementId === targetId) {
+                        const ownInfo = this.findParentInfo(targetId);
+                        const ownParentId = ownInfo ? this.getParentIdForList(ownInfo.list) : null;
+                        const ownParent = ownParentId != null ? this.elements[ownParentId] : null;
+                        const ownDirection = ownParent?.layout_setting?.fxLayout === 'row' ? 'row' : 'column';
+                        return {targetId, position: 'after', axis: ownDirection === 'row' ? 'x' : 'y'};
+                    }
 
                     const rect = el.getBoundingClientRect();
-                    const parentDirection = this.getParentDirectionForElement(targetId, el);
+                    const modelInfo = this.findParentInfo(targetId);
+                    const modelParentId = modelInfo ? this.getParentIdForList(modelInfo.list) : null;
+                    const modelParent = modelParentId != null ? this.elements[modelParentId] : null;
+                    const modelDirection = modelParent?.layout_setting?.fxLayout === 'row' ? 'row' : 'column';
+                    const parentDirection = this.getParentDirectionForElement(targetId, el) || modelDirection;
                     const parentAxis = parentDirection === 'row' ? 'x' : 'y';
                     const parentRatio = parentAxis === 'x'
                         ? (e.clientX - rect.left) / Math.max(rect.width, 1)
@@ -2414,6 +2589,25 @@
                         }
                         list.splice(Math.max(0, Math.min(adjustedIndex, list.length)), 0, id);
                         insertedId = id;
+
+                        const movedNode = this.elements[id];
+                        const newParent = parentId != null ? this.elements[parentId] : null;
+                        const isRow = newParent?.layout_setting?.fxLayout === 'row';
+                        movedNode.layout_setting = movedNode.layout_setting || this.defaultLayout();
+                        if (isRow) {
+                            const widthAttr = (movedNode.css_attribute || []).find(a => a.k === 'width');
+                            const currentWidth = String(widthAttr ? widthAttr.v : '').trim();
+                            if (!movedNode.layout_setting.fxFlex && (!currentWidth || currentWidth === '100%')) {
+                                const siblingCount = Math.max(1, list.filter(childId => this.elements[childId]).length);
+                                movedNode.layout_setting.fxFlex = (100 / siblingCount).toFixed(4).replace(/0+$/, '').replace(/\.$/, '') + '%';
+                            }
+                            this.setCssValueOnNode(movedNode, 'width', '');
+                            this.setCssValueOnNode(movedNode, 'min-width', '0');
+                        } else if (newParent) {
+                            movedNode.layout_setting.fxFlex = '';
+                            this.setCssValueOnNode(movedNode, 'width', '100%');
+                            this.setCssValueOnNode(movedNode, 'max-width', '100%');
+                        }
                     }
                     return insertedId;
                 },
@@ -2423,13 +2617,9 @@
                         return;
                     }
 
-                    const placement = this.elementDropTargetId != null && this.elementDropPosition
-                        ? {
-                            targetId: Number(this.elementDropTargetId),
-                            position: this.elementDropPosition,
-                            axis: this.elementDropAxis,
-                        }
-                        : this.getElementDropPlacement(targetId, e);
+                    // Always calculate from the actual drop event. The highlighted target is visual only
+                    // and can become stale when moving between nested containers.
+                    const placement = this.getElementDropPlacement(targetId, e);
 
                     const resolvedTargetId = Number(placement.targetId ?? targetId);
                     let list, index, parentId;
@@ -2450,7 +2640,7 @@
                     }
 
                     const insertedId = this.insertDropData(data, list, index, parentId);
-                    this.clearElementDropTarget();
+                    this.endElementDrag();
                     if (insertedId == null) return;
                     this.selectElement(insertedId);
                     this.pushHistory();
@@ -2506,8 +2696,35 @@
                     this.elements = {}; this.rootChildren = []; this.selectedId = null; this.nextId = 1;
                     if (!silent) {this.pushHistory(); this.saveLocal();}
                 },
-                addColumn(id) {this.elements[id].table_data.columns.push(this.createColumn()); this.pushHistory(); this.saveLocal();},
-                removeColumn(id, idx) {this.elements[id].table_data.columns.splice(idx, 1); this.pushHistory(); this.saveLocal();},
+                addColumn(id) {
+                    const columns = this.elements[id]?.table_data?.columns;
+                    if (!Array.isArray(columns)) return;
+
+                    const newColumn = this.createColumn();
+                    const newCount = columns.length + 1;
+                    const newColumnWidth = this.roundColumnWidth(100 / newCount);
+
+                    if (columns.length > 0) {
+                        this.redistributeColumnWidths(columns, 100 - newColumnWidth);
+                    }
+
+                    this.setColWidth(newColumn, newColumnWidth + '%');
+                    columns.push(newColumn);
+                    this.correctColumnWidthRounding(columns);
+                    this.pushHistory();
+                    this.saveLocal();
+                },
+                removeColumn(id, idx) {
+                    const columns = this.elements[id]?.table_data?.columns;
+                    if (!Array.isArray(columns)) return;
+                    columns.splice(idx, 1);
+                    if (columns.length > 0) {
+                        this.redistributeColumnWidths(columns, 100);
+                        this.correctColumnWidthRounding(columns);
+                    }
+                    this.pushHistory();
+                    this.saveLocal();
+                },
                 startColumnDrag(event, tableId, index) {
                     this.draggedTableId = Number(tableId);
                     this.draggedColumnIndex = index;
@@ -2574,6 +2791,86 @@
                     writeWidth(col.header_css_attribute);
                     col.width = normalized;
                     col.column_width = normalized;
+                },
+                roundColumnWidth(value) {
+                    const number = Number(value);
+                    if (!Number.isFinite(number)) return 0;
+                    return Math.round(number * 100) / 100;
+                },
+                getColumnWidthNumber(col) {
+                    const value = parseFloat(this.colWidth(col));
+                    return Number.isFinite(value) && value >= 0 ? value : 0;
+                },
+                formatColumnWidth(value) {
+                    const rounded = this.roundColumnWidth(value);
+                    return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+                },
+                columnWidthLabel(col) {
+                    const width = this.getColumnWidthNumber(col);
+                    return width > 0 ? this.formatColumnWidth(width) + '%' : 'Auto';
+                },
+                getTableWidthTotal(id) {
+                    const columns = this.elements[id]?.table_data?.columns || [];
+                    return this.roundColumnWidth(columns.reduce((total, col) => total + this.getColumnWidthNumber(col), 0));
+                },
+                getTableWidthRemaining(id) {
+                    return this.roundColumnWidth(100 - this.getTableWidthTotal(id));
+                },
+                tableWidthStatusClass(id) {
+                    const total = this.getTableWidthTotal(id);
+                    if (Math.abs(total - 100) <= 0.05) return 'is-valid';
+                    return total > 100 ? 'is-over' : 'is-warning';
+                },
+                redistributeColumnWidths(columns, targetTotal = 100, excludedIndex = null) {
+                    if (!Array.isArray(columns) || columns.length === 0) return;
+                    const indexes = columns.map((_, index) => index).filter(index => index !== excludedIndex);
+                    if (indexes.length === 0) return;
+
+                    const safeTarget = Math.max(0, Number(targetTotal) || 0);
+                    const currentWidths = indexes.map(index => this.getColumnWidthNumber(columns[index]));
+                    const currentTotal = currentWidths.reduce((total, width) => total + width, 0);
+
+                    indexes.forEach((columnIndex, position) => {
+                        const nextWidth = currentTotal > 0
+                            ? safeTarget * (currentWidths[position] / currentTotal)
+                            : safeTarget / indexes.length;
+                        this.setColWidth(columns[columnIndex], this.roundColumnWidth(nextWidth) + '%');
+                    });
+                },
+                correctColumnWidthRounding(columns, preferredIndex = null) {
+                    if (!Array.isArray(columns) || columns.length === 0) return;
+                    const total = columns.reduce((sum, col) => sum + this.getColumnWidthNumber(col), 0);
+                    const difference = this.roundColumnWidth(100 - total);
+                    if (Math.abs(difference) < 0.001) return;
+                    const targetIndex = preferredIndex !== null && columns[preferredIndex]
+                        ? preferredIndex
+                        : columns.length - 1;
+                    const corrected = Math.max(0, this.getColumnWidthNumber(columns[targetIndex]) + difference);
+                    this.setColWidth(columns[targetIndex], this.roundColumnWidth(corrected) + '%');
+                },
+                setColumnWidthAndBalance(id, index, rawValue) {
+                    const columns = this.elements[id]?.table_data?.columns;
+                    if (!Array.isArray(columns) || !columns[index]) return;
+
+                    const raw = String(rawValue ?? '').trim();
+                    if (!raw) {
+                        this.setColWidth(columns[index], '');
+                        this.pushHistory();
+                        this.saveLocal();
+                        return;
+                    }
+
+                    const requestedWidth = Math.min(100, Math.max(0, Number(raw) || 0));
+                    if (columns.length === 1) {
+                        this.setColWidth(columns[index], '100%');
+                    } else {
+                        this.setColWidth(columns[index], this.roundColumnWidth(requestedWidth) + '%');
+                        this.redistributeColumnWidths(columns, 100 - requestedWidth, index);
+                        this.correctColumnWidthRounding(columns, index);
+                    }
+
+                    this.pushHistory();
+                    this.saveLocal();
                 },
                 formatPayload() {try {this.payloadStr = JSON.stringify(JSON.parse(this.payloadStr), null, 2); this.pushHistory(); this.saveLocal();} catch (e) {alert('Cannot format: ' + e.message);} },
 
