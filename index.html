@@ -752,8 +752,21 @@
             cursor: grabbing;
         }
 
-        body.element-dragging .el-node {
-            cursor: grabbing;
+        /* Pointer-based element moving: avoids nested HTML5 draggable conflicts on toolbar buttons. */
+        .canvas-toolbar .drag-element-handle {
+            touch-action: none;
+            user-select: none;
+            -webkit-user-drag: none;
+        }
+
+        body.element-dragging,
+        body.element-dragging * {
+            cursor: grabbing !important;
+        }
+
+        .el-node.pointer-drag-source {
+            opacity: .48;
+            pointer-events: none !important;
         }
 
         /* ---------- RIGHT PROPERTIES ---------- */
@@ -2162,7 +2175,8 @@
                     e.preventDefault();
                     e.stopPropagation();
                     const data = e.dataTransfer.getData('text/plain');
-                    e.dataTransfer.dropEffect = data.startsWith('move:') ? 'move' : 'copy';
+                    const isElementMove = this.$root.draggedElementId != null || data.startsWith('move:');
+                    e.dataTransfer.dropEffect = isElementMove ? 'move' : 'copy';
                     this.$root.updateElementDropTarget(this.id, e);
                 },
                 onDragLeaveElement(e) {
@@ -2189,10 +2203,11 @@
         'drop-after': $root.elementDropTargetId === id && $root.elementDropPosition === 'after',
         'drop-inside': $root.elementDropTargetId === id && $root.elementDropPosition === 'inside',
         'drop-axis-x': $root.elementDropTargetId === id && $root.elementDropAxis === 'x',
-        'drop-axis-y': $root.elementDropTargetId === id && $root.elementDropAxis === 'y'
+        'drop-axis-y': $root.elementDropTargetId === id && $root.elementDropAxis === 'y',
+        'pointer-drag-source': $root.pointerElementDragActive && $root.draggedElementId === Number(id)
       }"
       :style="[cssStyle, layoutStyle]"
-      :draggable="isDesign"
+      :draggable="false"
       @click="onClick"
       @dragstart="onDragStart"
       @dragend="onDragEnd"
@@ -2200,10 +2215,10 @@
       @dragleave="onDragLeaveElement"
       @drop="onDropElement">
       <div class="canvas-toolbar" v-if="isSelected && isDesign">
-        <button class="drag-element-handle" draggable="true"
-          @dragstart.stop="$root.startElementDrag($event, id)"
-          @dragend.stop="$root.endElementDrag()"
-          title="Geser elemen ke posisi lain">⠿</button>
+        <button type="button" class="drag-element-handle" draggable="false"
+          @pointerdown.stop.prevent="$root.beginHandlePointerDrag($event, id)"
+          @click.stop.prevent
+          title="Tahan lalu geser elemen ke posisi lain">⠿</button>
         <select :value="node.content_type" @change="$root.changeElementType(id, parseInt($event.target.value))" style="background: rgba(255,255,255,0.7); border: 1px solid rgba(0,0,0,0.2); border-radius: 4px; font-size: 10px; font-weight: 800; cursor: pointer; padding: 2px 4px; margin-right: 6px; color: #0b0e14; outline: none; text-transform: uppercase;">
           <option v-for="(label, val) in $root.CT_LABELS" :key="val" :value="val">{{ label }}</option>
         </select>
@@ -2318,6 +2333,11 @@
                     draggedColumnIndex: null, dragOverColumnIndex: null, draggedTableId: null,
                     elementDropTargetId: null, elementDropPosition: null, elementDropAxis: 'y',
                     draggedElementId: null,
+                    pointerElementDragActive: false,
+                    pointerDragStartX: 0,
+                    pointerDragStartY: 0,
+                    pointerRootDropIndex: null,
+                    pointerDragMoved: false,
                     history: [], historyIndex: -1, suppressHistory: false,
                 };
             },
@@ -2339,19 +2359,98 @@
                 formatDate(iso) {return iso ? new Date(iso).toLocaleDateString() : '';},
 
                 // --- 1. PLATFORM SDK INITIALIZATION ---
+                // SDK tidak selalu tersedia ketika HTML dibuka secara lokal atau ketika script SDK terlambat dimuat.
+                // Semua akses Platform harus melalui helper ini agar editor dan drag-drop tetap berfungsi tanpa ReferenceError.
+                getPlatformSdk() {
+                    if (typeof Platform !== 'undefined') return Platform;
+                    if (typeof window !== 'undefined' && window.Platform) return window.Platform;
+                    return null;
+                },
+                async waitForPlatformSdk(timeoutMs = 1800) {
+                    const startedAt = Date.now();
+                    while (Date.now() - startedAt < timeoutMs) {
+                        const sdk = this.getPlatformSdk();
+                        if (sdk) return sdk;
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                    }
+                    return null;
+                },
+                getLocalTemplates() {
+                    try {
+                        const parsed = JSON.parse(localStorage.getItem('prieds_printout_templates_v1') || '[]');
+                        return Array.isArray(parsed) ? parsed : [];
+                    } catch (err) {
+                        console.warn('Local template read error:', err);
+                        return [];
+                    }
+                },
+                setLocalTemplates(records) {
+                    try {
+                        localStorage.setItem('prieds_printout_templates_v1', JSON.stringify(Array.isArray(records) ? records : []));
+                    } catch (err) {
+                        console.warn('Local template write error:', err);
+                    }
+                },
+                saveTemplateToBrowser(platformPayload) {
+                    const records = this.getLocalTemplates();
+                    let recordId = this.platformRecordId;
+                    const existingIndex = records.findIndex(record => String(record.id) === String(recordId));
+                    const now = new Date().toISOString();
+
+                    if (!recordId || existingIndex < 0) {
+                        recordId = 'local-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
+                    }
+
+                    const record = {
+                        id: recordId,
+                        ...platformPayload,
+                        updatedAt: now,
+                        createdAt: existingIndex >= 0 ? records[existingIndex].createdAt : now,
+                    };
+
+                    if (existingIndex >= 0) records.splice(existingIndex, 1, record);
+                    else records.unshift(record);
+
+                    this.setLocalTemplates(records);
+                    this.platformRecordId = recordId;
+                    return record;
+                },
                 async initPlatform() {
                     try {
-                        await Platform.collections.declare({
-                            'printout_templates': {create: 'auth', read: 'company', update: 'auth', delete: 'auth'}
-                        });
-                        this.currentUser = await Platform.auth.me();
+                        const sdk = await this.waitForPlatformSdk();
+                        if (!sdk) {
+                            this.cloudSaveStatus = 'Mode Lokal';
+                            await this.loadTemplates();
+                            return;
+                        }
+                        if (sdk.collections?.declare) {
+                            await sdk.collections.declare({
+                                'printout_templates': {create: 'auth', read: 'company', update: 'auth', delete: 'auth'}
+                            });
+                        }
+                        if (sdk.auth?.me) this.currentUser = await sdk.auth.me();
                         await this.loadTemplates();
-                    } catch (err) {console.error("Platform init error:", err);}
+                    } catch (err) {
+                        console.error("Platform init error:", err);
+                        this.cloudSaveStatus = 'Mode Lokal';
+                        await this.loadTemplates();
+                    }
                 },
                 async loadTemplates() {
                     this.loadingList = true;
-                    try {this.platformTemplates = await Platform.storage.list('printout_templates');}
-                    catch (err) {console.error(err);} finally {this.loadingList = false;}
+                    try {
+                        const sdk = this.getPlatformSdk();
+                        if (sdk?.storage?.list) {
+                            this.platformTemplates = await sdk.storage.list('printout_templates');
+                        } else {
+                            this.platformTemplates = this.getLocalTemplates();
+                        }
+                    } catch (err) {
+                        console.error('Load templates error:', err);
+                        this.platformTemplates = this.getLocalTemplates();
+                    } finally {
+                        this.loadingList = false;
+                    }
                 },
                 createNewTemplate() {
                     this.clearCanvas(true);
@@ -2370,7 +2469,19 @@
                 },
                 async deleteTemplate(id) {
                     if (!confirm("Anda yakin ingin menghapus template ini permanen?")) return;
-                    try {await Platform.storage.delete('printout_templates', String(id)); await this.loadTemplates();} catch (e) {alert(e.message);}
+                    try {
+                        const sdk = this.getPlatformSdk();
+                        if (sdk?.storage?.delete && !String(id).startsWith('local-')) {
+                            await sdk.storage.delete('printout_templates', String(id));
+                        } else {
+                            const records = this.getLocalTemplates().filter(record => String(record.id) !== String(id));
+                            this.setLocalTemplates(records);
+                        }
+                        await this.loadTemplates();
+                    } catch (e) {
+                        console.error('Delete template error:', e);
+                        alert(e.message);
+                    }
                 },
 
                 // --- 2. CLOUD AUTOSAVE (MENGGANTIKAN LOCALSTORAGE) ---
@@ -2387,17 +2498,41 @@
                                 company_id: this.companyId, document_type: this.documentType,
                                 template_data: JSON.stringify(payloadObj)
                             };
-                            if (this.platformRecordId) {
-                                await Platform.storage.update('printout_templates', String(this.platformRecordId), platformPayload);
+                            const sdk = this.getPlatformSdk();
+                            const isLocalRecord = String(this.platformRecordId || '').startsWith('local-');
+
+                            if (sdk?.storage?.update && sdk?.storage?.create) {
+                                if (this.platformRecordId && !isLocalRecord) {
+                                    await sdk.storage.update('printout_templates', String(this.platformRecordId), platformPayload);
+                                } else {
+                                    const created = await sdk.storage.create('printout_templates', platformPayload);
+                                    this.platformRecordId = created.id;
+                                }
+                                this.cloudSaveStatus = 'Tersimpan';
                             } else {
-                                const created = await Platform.storage.create('printout_templates', platformPayload);
-                                this.platformRecordId = created.id;
+                                this.saveTemplateToBrowser(platformPayload);
+                                this.cloudSaveStatus = 'Tersimpan Lokal';
                             }
-                            this.cloudSaveStatus = 'Tersimpan';
                             this.loadTemplates(); // Memperbarui data list di latar belakang
                         } catch (err) {
                             console.error("Save Error:", err);
-                            this.cloudSaveStatus = 'Gagal Simpan';
+                            // Jangan biarkan kegagalan SDK mengganggu fungsi editor/drag-drop.
+                            // Simpan fallback ke browser agar perubahan tetap aman.
+                            try {
+                                const payloadObj = this.exportDoc();
+                                this.saveTemplateToBrowser({
+                                    template_id: this.templateId,
+                                    description: this.description,
+                                    company_id: this.companyId,
+                                    document_type: this.documentType,
+                                    template_data: JSON.stringify(payloadObj)
+                                });
+                                this.cloudSaveStatus = 'Tersimpan Lokal';
+                                this.loadTemplates();
+                            } catch (localErr) {
+                                console.error('Local fallback save error:', localErr);
+                                this.cloudSaveStatus = 'Gagal Simpan';
+                            }
                         }
                     }, 1500); // Debounce 1.5 detik
                 },
@@ -2570,6 +2705,18 @@
                     }
                     return null;
                 },
+                refreshStructure(parentId) {
+                    // Re-assign array agar perubahan struktur selalu dirender langsung oleh Vue,
+                    // termasuk saat elemen dipindah antar-container dari file JSON hasil import.
+                    if (parentId == null) {
+                        this.rootChildren = [...this.rootChildren];
+                        return;
+                    }
+                    const parent = this.elements[parentId];
+                    if (parent && Array.isArray(parent.item_list)) {
+                        parent.item_list = [...parent.item_list];
+                    }
+                },
                 getElementDom(id) {
                     return document.querySelector(`.page .el-node[data-element-id="${Number(id)}"]`);
                 },
@@ -2635,6 +2782,199 @@
                     const last = childEntries[childEntries.length - 1];
                     return {targetId: last.id, position: 'after', axis};
                 },
+                beginHandlePointerDrag(event, id) {
+                    const numericId = Number(id);
+                    if (!this.elements[numericId]) return;
+                    if (event.button != null && event.button !== 0) return;
+
+                    // Do not re-select and re-render the toolbar when it is already selected.
+                    if (this.selectedId !== numericId || !this.selectedIds.includes(numericId)) {
+                        this.selectElement(numericId);
+                    }
+
+                    this.draggedElementId = numericId;
+                    this.pointerElementDragActive = false;
+                    this.pointerDragMoved = false;
+                    this.pointerRootDropIndex = null;
+                    this.pointerDragStartX = event.clientX;
+                    this.pointerDragStartY = event.clientY;
+                    this.clearElementDropTarget();
+                    document.body.classList.add('element-dragging');
+
+                    this._elementPointerMove = (moveEvent) => this.onHandlePointerMove(moveEvent);
+                    this._elementPointerUp = (upEvent) => this.finishHandlePointerDrag(upEvent);
+                    this._elementPointerCancel = (cancelEvent) => this.cancelHandlePointerDrag(cancelEvent);
+
+                    window.addEventListener('pointermove', this._elementPointerMove, {passive: false});
+                    window.addEventListener('pointerup', this._elementPointerUp, {passive: false});
+                    window.addEventListener('pointercancel', this._elementPointerCancel, {passive: false});
+
+                    try {
+                        if (event.currentTarget?.setPointerCapture && event.pointerId != null) {
+                            event.currentTarget.setPointerCapture(event.pointerId);
+                        }
+                    } catch (err) { }
+                },
+                cleanupHandlePointerListeners() {
+                    if (this._elementPointerMove) window.removeEventListener('pointermove', this._elementPointerMove);
+                    if (this._elementPointerUp) window.removeEventListener('pointerup', this._elementPointerUp);
+                    if (this._elementPointerCancel) window.removeEventListener('pointercancel', this._elementPointerCancel);
+                    this._elementPointerMove = null;
+                    this._elementPointerUp = null;
+                    this._elementPointerCancel = null;
+                },
+                onHandlePointerMove(event) {
+                    if (this.draggedElementId == null) return;
+                    const distance = Math.hypot(
+                        event.clientX - this.pointerDragStartX,
+                        event.clientY - this.pointerDragStartY
+                    );
+                    if (!this.pointerElementDragActive && distance < 4) return;
+
+                    this.pointerElementDragActive = true;
+                    this.pointerDragMoved = true;
+                    event.preventDefault();
+                    this.updatePointerElementDropTarget(event.clientX, event.clientY);
+                },
+                getValidElementAtPoint(clientX, clientY) {
+                    const sourceId = Number(this.draggedElementId);
+                    const blockedIds = this.getDescendants(sourceId);
+                    blockedIds.add(sourceId);
+                    const stack = document.elementsFromPoint
+                        ? document.elementsFromPoint(clientX, clientY)
+                        : [document.elementFromPoint(clientX, clientY)].filter(Boolean);
+                    const visited = new Set();
+
+                    for (const hit of stack) {
+                        const candidate = hit?.closest?.('.el-node[data-element-id]');
+                        if (!candidate) continue;
+                        const targetId = Number(candidate.dataset.elementId);
+                        if (!Number.isFinite(targetId) || visited.has(targetId)) continue;
+                        visited.add(targetId);
+                        if (blockedIds.has(targetId) || !this.elements[targetId]) continue;
+                        return {id: targetId, el: candidate};
+                    }
+                    return null;
+                },
+                resolveRootPointerPlacement(clientY) {
+                    const sourceId = Number(this.draggedElementId);
+                    const entries = (this.rootChildren || [])
+                        .map((id, modelIndex) => {
+                            const numericId = Number(id);
+                            if (numericId === sourceId || !this.elements[numericId]) return null;
+                            const el = this.getElementDom(numericId);
+                            return el ? {id: numericId, modelIndex, rect: el.getBoundingClientRect()} : null;
+                        })
+                        .filter(Boolean)
+                        .sort((a, b) => a.rect.top - b.rect.top);
+
+                    if (!entries.length) return {rootIndex: 0};
+                    for (const entry of entries) {
+                        if (clientY < entry.rect.top + entry.rect.height / 2) {
+                            return {targetId: entry.id, position: 'before', axis: 'y'};
+                        }
+                    }
+                    const last = entries[entries.length - 1];
+                    return {targetId: last.id, position: 'after', axis: 'y'};
+                },
+                updatePointerElementDropTarget(clientX, clientY) {
+                    this.pointerRootDropIndex = null;
+                    const hit = this.getValidElementAtPoint(clientX, clientY);
+                    if (hit) {
+                        const placement = this.getElementDropPlacement(hit.id, {
+                            currentTarget: hit.el,
+                            clientX,
+                            clientY,
+                        });
+                        this.elementDropTargetId = Number(placement.targetId);
+                        this.elementDropPosition = placement.position;
+                        this.elementDropAxis = placement.axis;
+                        return;
+                    }
+
+                    const page = document.querySelector('.page');
+                    const pageRect = page?.getBoundingClientRect();
+                    const insidePage = pageRect && clientX >= pageRect.left && clientX <= pageRect.right && clientY >= pageRect.top && clientY <= pageRect.bottom;
+                    if (!insidePage) {
+                        this.clearElementDropTarget();
+                        return;
+                    }
+
+                    const placement = this.resolveRootPointerPlacement(clientY);
+                    if (placement.rootIndex != null) {
+                        this.pointerRootDropIndex = placement.rootIndex;
+                        this.clearElementDropTarget();
+                    } else {
+                        this.elementDropTargetId = placement.targetId;
+                        this.elementDropPosition = placement.position;
+                        this.elementDropAxis = placement.axis;
+                    }
+                },
+                commitElementDrop(data, targetId, placement) {
+                    const resolvedTargetId = Number(placement?.targetId ?? targetId);
+                    let list, index, parentId;
+
+                    if (placement?.position === 'inside' && this.elements[resolvedTargetId]?.content_type === CT.container) {
+                        list = this.elements[resolvedTargetId].item_list;
+                        index = list.length;
+                        parentId = resolvedTargetId;
+                    } else {
+                        const info = this.findParentInfo(resolvedTargetId);
+                        if (!info) return null;
+                        list = info.list;
+                        index = info.index + (placement?.position === 'after' ? 1 : 0);
+                        parentId = this.getParentIdForList(list);
+                    }
+                    return this.insertDropData(data, list, index, parentId);
+                },
+                finishHandlePointerDrag(event) {
+                    if (this.draggedElementId == null) {
+                        this.cleanupHandlePointerListeners();
+                        return;
+                    }
+                    const movedId = Number(this.draggedElementId);
+                    const wasActive = this.pointerElementDragActive;
+                    if (wasActive) {
+                        event.preventDefault();
+                        this.updatePointerElementDropTarget(event.clientX, event.clientY);
+                    }
+
+                    let insertedId = null;
+                    if (wasActive) {
+                        const data = 'move:' + movedId;
+                        if (this.pointerRootDropIndex != null) {
+                            insertedId = this.insertDropData(data, this.rootChildren, this.pointerRootDropIndex, null);
+                        } else if (this.elementDropTargetId != null && this.elementDropPosition) {
+                            insertedId = this.commitElementDrop(data, this.elementDropTargetId, {
+                                targetId: this.elementDropTargetId,
+                                position: this.elementDropPosition,
+                                axis: this.elementDropAxis,
+                            });
+                        }
+                    }
+
+                    this.cleanupHandlePointerListeners();
+                    this.pointerElementDragActive = false;
+                    this.pointerRootDropIndex = null;
+                    this.draggedElementId = null;
+                    document.body.classList.remove('element-dragging');
+                    this.clearElementDropTarget();
+
+                    if (insertedId != null) {
+                        this.selectElement(insertedId);
+                        this.pushHistory();
+                        this.saveLocal();
+                    }
+                },
+                cancelHandlePointerDrag(event) {
+                    if (event?.preventDefault) event.preventDefault();
+                    this.cleanupHandlePointerListeners();
+                    this.pointerElementDragActive = false;
+                    this.pointerRootDropIndex = null;
+                    this.draggedElementId = null;
+                    document.body.classList.remove('element-dragging');
+                    this.clearElementDropTarget();
+                },
                 startElementDrag(event, id) {
                     const numericId = Number(id);
                     if (!this.elements[numericId] || !event?.dataTransfer) return;
@@ -2654,9 +2994,13 @@
                     this.clearElementDropTarget();
                 },
                 endElementDrag() {
-                    this.draggedElementId = null;
-                    document.body.classList.remove('element-dragging');
-                    this.clearElementDropTarget();
+                    // Jalankan setelah event drop selesai agar target tidak dibersihkan terlalu cepat
+                    // pada browser yang mengirim dragend sangat berdekatan dengan drop.
+                    window.setTimeout(() => {
+                        this.draggedElementId = null;
+                        document.body.classList.remove('element-dragging');
+                        this.clearElementDropTarget();
+                    }, 0);
                 },
                 getElementDropPlacement(targetId, e) {
                     targetId = Number(targetId);
@@ -2758,6 +3102,7 @@
                     if (!data || !list) return null;
                     let insertedId = null;
                     const safeIndex = Math.max(0, Math.min(index, list.length));
+                    let oldParentId = null;
 
                     if (data.startsWith('new:')) {
                         const type = data.slice(4);
@@ -2774,6 +3119,7 @@
                         const oldInfo = this.findParentInfo(id);
                         let adjustedIndex = safeIndex;
                         if (oldInfo) {
+                            oldParentId = this.getParentIdForList(oldInfo.list);
                             if (oldInfo.list === list && oldInfo.index < safeIndex) adjustedIndex--;
                             oldInfo.list.splice(oldInfo.index, 1);
                         }
@@ -2797,8 +3143,16 @@
                             movedNode.layout_setting.fxFlex = '';
                             this.setCssValueOnNode(movedNode, 'width', '100%');
                             this.setCssValueOnNode(movedNode, 'max-width', '100%');
+                        } else {
+                            movedNode.layout_setting.fxFlex = '';
+                            this.setCssValueOnNode(movedNode, 'width', '100%');
+                            this.setCssValueOnNode(movedNode, 'max-width', '100%');
                         }
                     }
+
+                    // Pastikan parent lama dan parent baru langsung dirender ulang.
+                    if (oldParentId !== parentId) this.refreshStructure(oldParentId);
+                    this.refreshStructure(parentId);
                     return insertedId;
                 },
                 handleElementDrop(data, targetId, e) {
@@ -2811,25 +3165,7 @@
                     // and can become stale when moving between nested containers.
                     const placement = this.getElementDropPlacement(targetId, e);
 
-                    const resolvedTargetId = Number(placement.targetId ?? targetId);
-                    let list, index, parentId;
-
-                    if (placement.position === 'inside' && this.elements[resolvedTargetId]?.content_type === CT.container) {
-                        list = this.elements[resolvedTargetId].item_list;
-                        index = list.length;
-                        parentId = resolvedTargetId;
-                    } else {
-                        const info = this.findParentInfo(resolvedTargetId);
-                        if (!info) {
-                            this.clearElementDropTarget();
-                            return;
-                        }
-                        list = info.list;
-                        index = info.index + (placement.position === 'after' ? 1 : 0);
-                        parentId = this.getParentIdForList(list);
-                    }
-
-                    const insertedId = this.insertDropData(data, list, index, parentId);
+                    const insertedId = this.commitElementDrop(data, targetId, placement);
                     this.endElementDrag();
                     if (insertedId == null) return;
                     this.selectElement(insertedId);
@@ -3117,7 +3453,15 @@
                             table_data: n.content_type === CT.table
                                 ? {data_source: n.table_data.data_source, columns: n.table_data.columns.map((c, ci) => {
                                     const rawColumnType = Number(c.content_type);
-                                    const systemColumnType = rawColumnType === 11 ? 11 : rawColumnType === 3 ? 3 : (rawColumnType === 0 && !String(c.content ?? '').trim() ? 0 : 2);
+
+                                    // Mapping kolom tabel native Prieds berbeda dari content_type elemen biasa:
+                                    // 0 = Variable/Data Table, 1 = Label, 2 = Row Number.
+                                    // Editor tetap memakai tipe internal 2/3/11 agar UI dan preview lama tidak berubah.
+                                    const systemColumnType = rawColumnType === 11
+                                        ? 2
+                                        : rawColumnType === 3
+                                            ? 1
+                                            : 0;
                                     return {
                                         header_css_attribute: cleanCss(c.header_css_attribute),
                                         css_attribute: cleanCss(c.css_attribute),
@@ -3127,7 +3471,7 @@
                                         name: `Column-${ci}`,
                                         title: c.title,
                                         content_type: systemColumnType,
-                                        content: systemColumnType === 11 ? '1' : String(c.content ?? ''),
+                                        content: systemColumnType === 2 ? 'RowNumber' : String(c.content ?? ''),
                                         format: c.format || '',
                                     };
                                 })}
@@ -3151,6 +3495,33 @@
                     this.payloadStr = obj.payload || '{}';
                     const pa = {}; (obj.page_css_attribute || []).forEach(({k, v}) => pa[k] = v);
                     this.pageAttrs = Object.assign({width: '21cm', height: '', background: 'white', 'background-size': '', 'background-repeat': '', 'background-attachment': '', 'padding-left': '', 'padding-right': '', 'font-family': '', }, pa);
+
+                    // Deteksi schema kolom tabel native Prieds.
+                    // Hasil export langsung dari Prieds menyimpan Variable sebagai content_type: 0.
+                    const nativeTableSchemaState = {hasVariableType0: false, hasLabelType1: false};
+                    const scanNativeTableSchema = (value) => {
+                        if (Array.isArray(value)) {
+                            value.forEach(scanNativeTableSchema);
+                            return;
+                        }
+                        if (!value || typeof value !== 'object') return;
+
+                        const columns = value?.table_data?.columns;
+                        if (Array.isArray(columns)) {
+                            columns.forEach(col => {
+                                if (!col || typeof col !== 'object') return;
+                                const numericType = Number(col.content_type);
+                                const content = String(col.content ?? '').trim();
+                                if (numericType === 0 && content) nativeTableSchemaState.hasVariableType0 = true;
+                                if (numericType === 1) nativeTableSchemaState.hasLabelType1 = true;
+                            });
+                        }
+                        Object.values(value).forEach(scanNativeTableSchema);
+                    };
+                    scanNativeTableSchema(obj.element_list || []);
+                    const usesPriedsNativeTableColumnSchema =
+                        nativeTableSchemaState.hasVariableType0 || nativeTableSchemaState.hasLabelType1;
+
                     const normalizeTableColumnContentType = (col) => {
                         const content = String(col?.content ?? '').trim();
                         const rawType = col?.content_type;
@@ -3165,15 +3536,30 @@
                         }
 
                         const numericType = Number(rawType);
+                        const normalizedContent = content.toLowerCase().replace(/[\s_-]+/g, '');
 
-                        // Nilai 7 pernah digunakan oleh generator ini sebagai Variable.
+                        // Schema native Prieds untuk kolom tabel:
+                        // 0 = Variable/Data Table, 1 = Label, 2 = Row Number.
+                        if (numericType === 0) return content ? 2 : 0;
+                        if (numericType === 1) return 3;
+
+                        if (numericType === 2) {
+                            const explicitRowNumber =
+                                normalizedContent === '1'
+                                || normalizedContent === 'rownumber'
+                                || normalizedContent === "var('rownumber')"
+                                || normalizedContent === 'var("rownumber")';
+
+                            // JSON generator versi lama pernah memakai 2 untuk Variable.
+                            // Bila file terdeteksi sebagai export native Prieds, tipe 2 dibaca sebagai Row Number.
+                            return (usesPriedsNativeTableColumnSchema || explicitRowNumber) ? 11 : 2;
+                        }
+
+                        // Kompatibilitas file generator versi sebelumnya.
                         if (numericType === 7) return 2;
+                        if (numericType === 3) return 3;
+                        if (numericType === 11) return 11;
 
-                        // Beberapa JSON lama menyimpan 0/Container walaupun berisi expression.
-                        // Expression yang terisi harus dibaca sebagai Variable.
-                        if (numericType === 0 && content) return 2;
-
-                        if ([0, 2, 3, 11].includes(numericType)) return numericType;
                         return content ? 2 : 0;
                     };
 
