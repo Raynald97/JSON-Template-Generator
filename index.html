@@ -2218,7 +2218,7 @@
         <button type="button" class="drag-element-handle" draggable="false"
           @pointerdown.stop.prevent="$root.beginHandlePointerDrag($event, id)"
           @click.stop.prevent
-          title="Tahan lalu geser elemen ke posisi lain">⠿</button>
+          title="Tahan lalu geser: atas/bawah untuk urutan, kiri/kanan untuk posisi horizontal di dalam container">⠿</button>
         <select :value="node.content_type" @change="$root.changeElementType(id, parseInt($event.target.value))" style="background: rgba(255,255,255,0.7); border: 1px solid rgba(0,0,0,0.2); border-radius: 4px; font-size: 10px; font-weight: 800; cursor: pointer; padding: 2px 4px; margin-right: 6px; color: #0b0e14; outline: none; text-transform: uppercase;">
           <option v-for="(label, val) in $root.CT_LABELS" :key="val" :value="val">{{ label }}</option>
         </select>
@@ -2338,6 +2338,12 @@
                     pointerDragStartY: 0,
                     pointerRootDropIndex: null,
                     pointerDragMoved: false,
+                    pointerHorizontalPositioning: false,
+                    pointerHorizontalEligible: false,
+                    pointerDragParentId: null,
+                    pointerDragParentRect: null,
+                    pointerDragOriginMarginLeft: 0,
+                    pointerDragMaxMarginLeft: 0,
                     history: [], historyIndex: -1, suppressHistory: false,
                 };
             },
@@ -2644,7 +2650,7 @@
                         {k: 'vertical-align', v: ''}, {k: 'font-weight', v: ''}, {k: 'text-transform', v: ''}, {k: 'border', v: ''},
                         {k: 'padding', v: ''}, {k: 'border-top', v: ''}, {k: 'border-bottom', v: ''}, {k: 'border-left', v: ''},
                         {k: 'border-right', v: ''}, {k: 'padding-top', v: ''}, {k: 'padding-bottom', v: ''}, {k: 'padding-left', v: ''},
-                        {k: 'padding-right', v: ''}, {k: 'background-color', v: ''}, {k: 'font-family', v: ''}, {k: 'letter-spacing', v: ''},
+                        {k: 'padding-right', v: ''}, {k: 'margin-left', v: ''}, {k: 'margin-right', v: ''}, {k: 'background-color', v: ''}, {k: 'font-family', v: ''}, {k: 'letter-spacing', v: ''},
                         {k: 'background-image', v: ''}, {k: 'background-size', v: ''}, {k: 'word-break', v: ''}, {k: 'white-space', v: ''}
                     ];
                 },
@@ -2798,6 +2804,39 @@
                     this.pointerRootDropIndex = null;
                     this.pointerDragStartX = event.clientX;
                     this.pointerDragStartY = event.clientY;
+                    this.pointerHorizontalPositioning = false;
+                    this.pointerHorizontalEligible = false;
+                    this.pointerDragParentId = null;
+                    this.pointerDragParentRect = null;
+                    this.pointerDragOriginMarginLeft = 0;
+                    this.pointerDragMaxMarginLeft = 0;
+
+                    // Horizontal free-positioning inside a COLUMN container.
+                    // Vertical dragging keeps the existing reorder behavior.
+                    const sourceEl = this.getElementDom(numericId);
+                    const parentInfo = this.findParentInfo(numericId);
+                    const parentId = parentInfo ? this.getParentIdForList(parentInfo.list) : null;
+                    const parentNode = parentId != null ? this.elements[parentId] : null;
+                    const parentEl = parentId != null ? this.getElementDom(parentId) : null;
+                    const parentDirection = parentNode?.layout_setting?.fxLayout === 'row' ? 'row' : 'column';
+                    if (sourceEl && parentNode?.content_type === CT.container && parentDirection !== 'row' && parentEl) {
+                        const zoom = this.zoom / 100;
+                        const parentRect = parentEl.getBoundingClientRect();
+                        const sourceRect = sourceEl.getBoundingClientRect();
+                        const parentStyle = window.getComputedStyle(parentEl);
+                        const padLeft = (parseFloat(parentStyle.paddingLeft) || 0) * zoom;
+                        const padRight = (parseFloat(parentStyle.paddingRight) || 0) * zoom;
+                        const innerWidthPx = Math.max(0, parentRect.width - padLeft - padRight);
+                        const sourceWidthPx = sourceRect.width;
+                        const marginLeftCss = parseFloat(this.getCss(numericId, 'margin-left')) || 0;
+
+                        this.pointerHorizontalEligible = true;
+                        this.pointerDragParentId = parentId;
+                        this.pointerDragParentRect = parentRect;
+                        this.pointerDragOriginMarginLeft = marginLeftCss;
+                        this.pointerDragMaxMarginLeft = Math.max(0, (innerWidthPx - sourceWidthPx) / Math.max(zoom, 0.01));
+                    }
+
                     this.clearElementDropTarget();
                     document.body.classList.add('element-dragging');
 
@@ -2825,11 +2864,37 @@
                 },
                 onHandlePointerMove(event) {
                     if (this.draggedElementId == null) return;
-                    const distance = Math.hypot(
-                        event.clientX - this.pointerDragStartX,
-                        event.clientY - this.pointerDragStartY
-                    );
+                    const dxScreen = event.clientX - this.pointerDragStartX;
+                    const dyScreen = event.clientY - this.pointerDragStartY;
+                    const distance = Math.hypot(dxScreen, dyScreen);
                     if (!this.pointerElementDragActive && distance < 4) return;
+
+                    // If the element lives inside a vertical/column container, a clearly horizontal
+                    // gesture becomes free horizontal positioning instead of a vertical reorder.
+                    if (this.pointerHorizontalEligible && !this.pointerHorizontalPositioning) {
+                        const r = this.pointerDragParentRect;
+                        const insideParent = r && event.clientX >= r.left - 8 && event.clientX <= r.right + 8 && event.clientY >= r.top - 8 && event.clientY <= r.bottom + 8;
+                        if (insideParent && Math.abs(dxScreen) >= 6 && Math.abs(dxScreen) > Math.abs(dyScreen) * 1.15) {
+                            this.pointerHorizontalPositioning = true;
+                            this.pointerElementDragActive = true;
+                            this.pointerDragMoved = true;
+                            this.clearElementDropTarget();
+                        }
+                    }
+
+                    if (this.pointerHorizontalPositioning) {
+                        event.preventDefault();
+                        const zoom = Math.max(this.zoom / 100, 0.01);
+                        const dx = dxScreen / zoom;
+                        const next = Math.max(0, Math.min(this.pointerDragMaxMarginLeft, this.pointerDragOriginMarginLeft + dx));
+                        const node = this.elements[Number(this.draggedElementId)];
+                        if (node) {
+                            this.setCssValueOnNode(node, 'margin-left', Math.round(next) + 'px');
+                            this.setCssValueOnNode(node, 'margin-right', '');
+                        }
+                        this.clearElementDropTarget();
+                        return;
+                    }
 
                     this.pointerElementDragActive = true;
                     this.pointerDragMoved = true;
@@ -2940,7 +3005,8 @@
                     }
 
                     let insertedId = null;
-                    if (wasActive) {
+                    const horizontalMoved = wasActive && this.pointerHorizontalPositioning;
+                    if (wasActive && !horizontalMoved) {
                         const data = 'move:' + movedId;
                         if (this.pointerRootDropIndex != null) {
                             insertedId = this.insertDropData(data, this.rootChildren, this.pointerRootDropIndex, null);
@@ -2955,12 +3021,20 @@
 
                     this.cleanupHandlePointerListeners();
                     this.pointerElementDragActive = false;
+                    this.pointerHorizontalPositioning = false;
+                    this.pointerHorizontalEligible = false;
+                    this.pointerDragParentId = null;
+                    this.pointerDragParentRect = null;
                     this.pointerRootDropIndex = null;
                     this.draggedElementId = null;
                     document.body.classList.remove('element-dragging');
                     this.clearElementDropTarget();
 
-                    if (insertedId != null) {
+                    if (horizontalMoved) {
+                        this.selectElement(movedId);
+                        this.pushHistory();
+                        this.saveLocal();
+                    } else if (insertedId != null) {
                         this.selectElement(insertedId);
                         this.pushHistory();
                         this.saveLocal();
@@ -2968,8 +3042,17 @@
                 },
                 cancelHandlePointerDrag(event) {
                     if (event?.preventDefault) event.preventDefault();
+                    // Restore the horizontal offset if a horizontal positioning gesture is cancelled.
+                    if (this.pointerHorizontalPositioning && this.draggedElementId != null) {
+                        const node = this.elements[Number(this.draggedElementId)];
+                        if (node) this.setCssValueOnNode(node, 'margin-left', Math.round(this.pointerDragOriginMarginLeft) + 'px');
+                    }
                     this.cleanupHandlePointerListeners();
                     this.pointerElementDragActive = false;
+                    this.pointerHorizontalPositioning = false;
+                    this.pointerHorizontalEligible = false;
+                    this.pointerDragParentId = null;
+                    this.pointerDragParentRect = null;
                     this.pointerRootDropIndex = null;
                     this.draggedElementId = null;
                     document.body.classList.remove('element-dragging');
