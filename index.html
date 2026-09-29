@@ -713,7 +713,8 @@
             background: lightblue;
             color: #0b0e14;
             display: flex;
-            align-items: center;
+            flex-direction: column;
+            align-items: stretch;
             gap: 4px;
             padding: 4px 8px;
             border-radius: 6px;
@@ -722,6 +723,42 @@
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
             pointer-events: auto;
             white-space: nowrap;
+            max-width: min(560px, calc(100vw - 24px));
+        }
+
+        .canvas-toolbar-row {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            min-width: 0;
+        }
+
+        .canvas-toolbar-layout-row {
+            padding-top: 4px;
+            border-top: 1px solid rgba(11, 14, 20, .18);
+        }
+
+        .canvas-toolbar-layout-label {
+            font-size: 9px;
+            font-weight: 900;
+            letter-spacing: .04em;
+            text-transform: uppercase;
+            opacity: .72;
+            margin-right: 2px;
+        }
+
+        .canvas-toolbar .layout-mode-btn {
+            font-size: 10px;
+            font-weight: 800;
+            padding: 4px 7px;
+            min-height: 24px;
+            border: 1px solid rgba(11, 14, 20, .15);
+        }
+
+        .canvas-toolbar .layout-mode-btn.active {
+            background: #0b0e14;
+            color: #fff;
+            border-color: #0b0e14;
         }
 
         .canvas-toolbar .ct-name {
@@ -2278,19 +2315,37 @@
       @dragleave="onDragLeaveElement"
       @drop="onDropElement">
       <div class="canvas-toolbar" v-if="isSelected && isDesign">
-        <button type="button" class="drag-element-handle" draggable="false"
-          @pointerdown.stop.prevent="$root.beginHandlePointerDrag($event, id)"
-          @click.stop.prevent
-          title="Tahan lalu geser: atas/bawah untuk urutan, kiri/kanan untuk posisi horizontal di dalam container">⠿</button>
-        <select :value="node.content_type" @change="$root.changeElementType(id, parseInt($event.target.value))" style="background: rgba(255,255,255,0.7); border: 1px solid rgba(0,0,0,0.2); border-radius: 4px; font-size: 10px; font-weight: 800; cursor: pointer; padding: 2px 4px; margin-right: 6px; color: #0b0e14; outline: none; text-transform: uppercase;">
-          <option v-for="(label, val) in $root.CT_LABELS" :key="val" :value="val">{{ label }}</option>
-        </select>
-        <button @click.stop="$root.selectParent(id)" title="Pilih Wadah (Parent)">📦</button>
-        <button @click.stop="$root.moveSibling(id,-1)" title="Pindah Atas / Kiri">⬆️</button>
-        <button @click.stop="$root.moveSibling(id,1)" title="Pindah Bawah / Kanan">⬇️</button>
-        <button @click.stop="$root.distributeWidth(id)" title="Bagi Rata Lebar Sama Rata">↔️</button>
-        <button @click.stop="$root.duplicateElement(id)" title="Duplikat (Copy)">📄</button>
-        <button @click.stop="$root.removeSelected()" title="Hapus">🗑️</button>
+        <div class="canvas-toolbar-row">
+          <button type="button" class="drag-element-handle" draggable="false"
+            @pointerdown.stop.prevent="$root.beginHandlePointerDrag($event, id)"
+            @click.stop.prevent
+            title="Tahan lalu geser: atas/bawah untuk urutan, kiri/kanan untuk posisi horizontal di dalam container">⠿</button>
+          <select :value="node.content_type" @change="$root.changeElementType(id, parseInt($event.target.value))" style="background: rgba(255,255,255,0.7); border: 1px solid rgba(0,0,0,0.2); border-radius: 4px; font-size: 10px; font-weight: 800; cursor: pointer; padding: 2px 4px; margin-right: 6px; color: #0b0e14; outline: none; text-transform: uppercase;">
+            <option v-for="(label, val) in $root.CT_LABELS" :key="val" :value="val">{{ label }}</option>
+          </select>
+          <button @click.stop="$root.selectParent(id)" title="Pilih Wadah (Parent)">📦</button>
+          <button @click.stop="$root.moveSibling(id,-1)" title="Pindah Atas / Kiri">⬆️</button>
+          <button @click.stop="$root.moveSibling(id,1)" title="Pindah Bawah / Kanan">⬇️</button>
+          <button @click.stop="$root.distributeWidth(id)" title="Bagi Rata Lebar Sama Rata">↔️</button>
+          <button @click.stop="$root.duplicateElement(id)" title="Duplikat (Copy)">📄</button>
+          <button @click.stop="$root.removeSelected()" title="Hapus">🗑️</button>
+        </div>
+        <div class="canvas-toolbar-row canvas-toolbar-layout-row" v-if="node.content_type===0">
+          <span class="canvas-toolbar-layout-label">Layout</span>
+          <button type="button" class="layout-mode-btn"
+            :class="{active:(node.layout_setting?.fxLayout || 'column')==='column'}"
+            @click.stop="$root.setContainerLayoutMode(id,'column')"
+            title="Susun isi container dari atas ke bawah">↕ Column</button>
+          <button type="button" class="layout-mode-btn"
+            :class="{active:node.layout_setting?.fxLayout==='row'}"
+            @click.stop="$root.setContainerLayoutMode(id,'row')"
+            title="Susun isi container dari kiri ke kanan">↔ Row</button>
+          <button type="button" class="layout-mode-btn"
+            :class="{active:node.layout_setting?.fxLayoutWrap==='wrap'}"
+            :disabled="node.layout_setting?.fxLayout!=='row'"
+            @click.stop="$root.toggleContainerWrap(id)"
+            title="Jika Row penuh, lanjutkan item ke baris berikutnya">Wrap</button>
+        </div>
       </div>
 
       <div class="resize-handle right" v-if="isSelected && isDesign" @mousedown.stop.prevent="startResize($event, 'x')"></div>
@@ -2668,6 +2723,15 @@
                             if (child) this.setCssValueOnNode(child, 'margin-left', '');
                         });
                     }
+                    this.pushHistory();
+                    this.saveLocal();
+                },
+                toggleContainerWrap(id) {
+                    const node = this.elements[Number(id)];
+                    if (!node || node.content_type !== CT.container) return;
+                    if (!node.layout_setting) node.layout_setting = {};
+                    if (node.layout_setting.fxLayout !== 'row') return;
+                    node.layout_setting.fxLayoutWrap = node.layout_setting.fxLayoutWrap === 'wrap' ? 'nowrap' : 'wrap';
                     this.pushHistory();
                     this.saveLocal();
                 },
