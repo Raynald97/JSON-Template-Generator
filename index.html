@@ -506,10 +506,12 @@
 
         .zoom-wrap {
             transform-origin: top center;
+            overflow: visible;
         }
 
         .page {
             background: var(--paper);
+            overflow: visible;
             box-shadow: 0 4px 24px rgba(0, 0, 0, .25), 0 0 0 1px rgba(0, 0, 0, .06);
             min-height: 200px;
             position: relative;
@@ -549,7 +551,17 @@
         .el-node.el-selected {
             outline: 2px solid red !important;
             outline-offset: -2px;
-            z-index: 10;
+            /* Keep the floating element toolbar above neighbouring containers/tables. */
+            z-index: 1000;
+            overflow: visible !important;
+        }
+
+        /* In Design mode a selected child may live inside a table cell.
+           Table cells normally clip overflow, which can cut off the floating toolbar.
+           Let editor chrome escape the cell while keeping Preview/Print unchanged. */
+        .design-mode .el-table td,
+        .design-mode .el-table th {
+            overflow: visible;
         }
 
 
@@ -696,7 +708,7 @@
         /* canvas toolbar */
         .canvas-toolbar {
             position: absolute;
-            top: -32px;
+            top: -34px;
             right: -2px;
             background: lightblue;
             color: #0b0e14;
@@ -706,7 +718,7 @@
             padding: 4px 8px;
             border-radius: 6px;
             font-size: 11px;
-            z-index: 50;
+            z-index: 10000;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
             pointer-events: auto;
             white-space: nowrap;
@@ -1657,8 +1669,59 @@
                             <button class="btn full-width" @click="addColumn(selectedId)">+ Add New Column</button>
                         </div>
 
+                        <!-- MODE SUSUNAN KHUSUS CONTAINER -->
+                        <div class="psection" v-if="elements[selectedId].content_type===0">
+                            <div class="eyebrow">Container Layout Mode</div>
+                            <div class="hint" style="margin-bottom:10px; line-height:1.45;">
+                                Pilih cara elemen di dalam Wadah / Kotak disusun. Pada mode <b>Row</b>, drag handle ⠿ bergerak kiri/kanan untuk mengubah urutan. Pada mode <b>Column</b>, drag atas/bawah mengubah urutan.
+                            </div>
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px;">
+                                <button type="button" class="btn"
+                                    :class="{'primary': (elements[selectedId].layout_setting.fxLayout || 'column') === 'column'}"
+                                    style="justify-content:center;"
+                                    @click="setContainerLayoutMode(selectedId, 'column')">↕ Column</button>
+                                <button type="button" class="btn"
+                                    :class="{'primary': elements[selectedId].layout_setting.fxLayout === 'row'}"
+                                    style="justify-content:center;"
+                                    @click="setContainerLayoutMode(selectedId, 'row')">↔ Row</button>
+                            </div>
+                            <div class="row2">
+                                <div class="field"><label>Jarak Antar Item</label>
+                                    <input type="text" v-model="elements[selectedId].layout_setting.fxLayoutGap"
+                                        @change="pushHistory(); saveLocal();" placeholder="Contoh: 8px">
+                                </div>
+                                <div class="field"><label>Wrap (Mode Row)</label>
+                                    <select v-model="elements[selectedId].layout_setting.fxLayoutWrap"
+                                        @change="pushHistory(); saveLocal();">
+                                        <option value="nowrap">Tidak Wrap</option>
+                                        <option value="wrap">Wrap ke Baris Baru</option>
+                                    </select>
+                                </div>
+                                <div class="field"><label>Horizontal</label>
+                                    <select v-model="elements[selectedId].layout_setting.fxLayoutAlign_horizontal"
+                                        @change="pushHistory(); saveLocal();">
+                                        <option value="none">Standar</option>
+                                        <option value="start">Kiri</option>
+                                        <option value="center">Tengah</option>
+                                        <option value="end">Kanan</option>
+                                        <option value="space-between">Space Between</option>
+                                        <option value="space-around">Space Around</option>
+                                    </select>
+                                </div>
+                                <div class="field"><label>Vertical</label>
+                                    <select v-model="elements[selectedId].layout_setting.fxLayoutAlign_vertical"
+                                        @change="pushHistory(); saveLocal();">
+                                        <option value="none">Standar</option>
+                                        <option value="start">Atas</option>
+                                        <option value="center">Tengah</option>
+                                        <option value="end">Bawah</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- PENGATURAN SUSUNAN (LAYOUT) -->
-                        <div class="psection">
+                        <div class="psection" v-if="elements[selectedId].content_type!==0">
                             <div class="eyebrow">Pengaturan Susunan (Layout)</div>
                             <div class="row2">
                                 <div class="field"><label>Susun Isinya Ke</label>
@@ -2590,6 +2653,24 @@
                 typeLabel(ct) {return CT_LABELS[ct] || 'Element';},
                 styleFromCssAttr(arr) {const s = {}; (arr || []).forEach(({k, v}) => {if (v !== '' && v != null) s[k] = v;}); return s;},
                 mapAlign(v) {const m = {start: 'flex-start', end: 'flex-end', center: 'center', 'space-between': 'space-between', 'space-around': 'space-around'}; return m[v] || v;},
+                setContainerLayoutMode(id, mode) {
+                    const node = this.elements[Number(id)];
+                    if (!node || node.content_type !== CT.container) return;
+                    if (!node.layout_setting) node.layout_setting = {};
+                    node.layout_setting.fxLayout = mode === 'row' ? 'row' : 'column';
+                    if (!node.layout_setting.fxLayoutGap || node.layout_setting.fxLayoutGap === 'none') node.layout_setting.fxLayoutGap = '0px';
+                    if (!node.layout_setting.fxLayoutWrap) node.layout_setting.fxLayoutWrap = 'nowrap';
+                    // Margin-left is only meaningful for free positioning in a column.
+                    // Clear it when switching to Row so horizontal drag becomes clean reorder.
+                    if (mode === 'row') {
+                        (node.item_list || []).forEach(childId => {
+                            const child = this.elements[Number(childId)];
+                            if (child) this.setCssValueOnNode(child, 'margin-left', '');
+                        });
+                    }
+                    this.pushHistory();
+                    this.saveLocal();
+                },
                 styleFromLayout(o) {
                     o = o || {}; const s = {};
                     if (o.fxLayout && o.fxLayout !== 'none') {s.display = 'flex'; s.flexDirection = o.fxLayout === 'column' ? 'column' : 'row';}
@@ -2597,6 +2678,7 @@
                     if (o.fxLayoutAlign_horizontal && o.fxLayoutAlign_horizontal !== 'none') s[dir === 'row' ? 'justifyContent' : 'alignItems'] = this.mapAlign(o.fxLayoutAlign_horizontal);
                     if (o.fxLayoutAlign_vertical && o.fxLayoutAlign_vertical !== 'none') s[dir === 'row' ? 'alignItems' : 'justifyContent'] = this.mapAlign(o.fxLayoutAlign_vertical);
                     if (o.fxLayoutGap && o.fxLayoutGap !== 'none') s.gap = o.fxLayoutGap;
+                    if (o.fxLayout === 'row' && o.fxLayoutWrap) s.flexWrap = o.fxLayoutWrap === 'wrap' ? 'wrap' : 'nowrap';
                     Object.assign(s, this.flexBasisFrom(o.fxFlex)); return s;
                 },
                 flexBasisFrom(fxFlex) {
@@ -2827,8 +2909,25 @@
                         const padLeft = (parseFloat(parentStyle.paddingLeft) || 0) * zoom;
                         const padRight = (parseFloat(parentStyle.paddingRight) || 0) * zoom;
                         const innerWidthPx = Math.max(0, parentRect.width - padLeft - padRight);
-                        const sourceWidthPx = sourceRect.width;
+                        let sourceWidthPx = sourceRect.width;
                         const marginLeftCss = parseFloat(this.getCss(numericId, 'margin-left')) || 0;
+
+                        // A normal DIV naturally stretches to the full container width, which leaves
+                        // no horizontal room to drag. If width was not explicitly configured, convert
+                        // it to a content-sized width the first time the user starts horizontal moving.
+                        const explicitWidth = String(this.getCss(numericId, 'width') || '').trim();
+                        const explicitFlex = String(this.elements[numericId]?.layout_setting?.fxFlex || '').trim();
+                        if (!explicitWidth && (!explicitFlex || explicitFlex === 'none') && sourceWidthPx >= innerWidthPx * 0.92) {
+                            const contentCandidates = Array.from(sourceEl.children || []).filter(el =>
+                                !el.classList?.contains('canvas-toolbar') && !el.classList?.contains('resize-handle')
+                            );
+                            const naturalPx = contentCandidates.reduce((max, el) => Math.max(max, el.scrollWidth || el.getBoundingClientRect().width || 0), 0);
+                            const desiredPx = Math.max(48 * zoom, Math.min(innerWidthPx * 0.65, naturalPx + 12 * zoom));
+                            const desiredCss = Math.max(48, desiredPx / Math.max(zoom, 0.01));
+                            this.setCssValueOnNode(this.elements[numericId], 'width', Math.round(desiredCss) + 'px');
+                            this.setCssValueOnNode(this.elements[numericId], 'max-width', '100%');
+                            sourceWidthPx = desiredPx;
+                        }
 
                         this.pointerHorizontalEligible = true;
                         this.pointerDragParentId = parentId;
